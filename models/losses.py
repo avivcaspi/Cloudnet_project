@@ -7,14 +7,12 @@ class FilteredJaccardLoss(nn.Module):
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, epsilon=1e-8):
         """
         Calculate filtered Jaccard loss
-        :param y_pred: tensor shaped (batch_size x classes x H x W ) with probability for each pixel
+        :param y_pred: tensor shaped (batch_size x H x W ) with probability for each pixel
         :param y_true: tensor shaped (batch_size x H x W) of true class for each pixel
         :param epsilon: const for stability
         :return:
         """
 
-        y_pred = torch.argmax(y_pred, dim=1)  # argmax over classes dimension
-        print(y_pred)
         if y_true.sum() == 0:
             i = ((1 - y_true) * (1 - y_pred)).sum().float()
             u = ((1 - y_true) + (1 - y_pred)).sum().float()
