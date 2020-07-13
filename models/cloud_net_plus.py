@@ -155,6 +155,8 @@ class CloudNetPlus(nn.Module):
             self.upsample_layers.append(upsampling_block)
         self.upsample_layers.append(UpsamplingBlock(input_channels * factor, 1, factor))
         self.upsample_layers = nn.ModuleList(self.upsample_layers)
+        self.final_layer = nn.Sequential(nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
+                                         nn.Sigmoid())
 
     def forward(self, x):
         contr_output = []
@@ -192,6 +194,9 @@ class CloudNetPlus(nn.Module):
 
         # Sum all outputs
         output = sum(upsample_output)
+
+        # Final layer
+        output = self.final_layer(output)
         return output
 
 
