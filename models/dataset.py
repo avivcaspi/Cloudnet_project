@@ -31,11 +31,11 @@ class Cloud95Dataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        red_str = 'train_red_additional_to38cloud/red_'
-        blue_str = 'train_blue_additional_to38cloud/blue_'
-        green_str = 'train_green_additional_to38cloud/green_'
-        nir_str = 'train_nir_additional_to38cloud/nir_'
-        gt_str = 'train_gt_additional_to38cloud/gt_'
+        red_str = 'train_red/red_'
+        blue_str = 'train_blue/blue_'
+        green_str = 'train_green/green_'
+        nir_str = 'train_nir/nir_'
+        gt_str = 'train_gt/gt_'
         red_img_name = os.path.join(self.root_dir,
                                     red_str + self.patches_name.iloc[idx, 0] + '.TIF')
         blue_img_name = os.path.join(self.root_dir,
@@ -124,17 +124,22 @@ def show_image_gt(image, gt):
     plt.show()
 
 
-cloud95_dataset = Cloud95Dataset(
-    csv_file='../data/611981_1173132_bundle_archive/95-cloud_training_only_additional_to38-cloud/training_patches_95'
-             '-cloud_additional_to_38-cloud.csv',
-    root_dir='../data/611981_1173132_bundle_archive/95'
-             '-cloud_training_only_additional_to38-cloud/',
-    transform=transforms.Compose([Rescale(192), ToTensor()]))
+if __name__ == '__main__':
+    cloud95_dataset = Cloud95Dataset(
+        csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+        root_dir='../data/95-cloud_train/',
+        transform=transforms.Compose([Rescale(192), ToTensor()]))
 
-for i in range(26250,len(cloud95_dataset)):
+    dataloader = DataLoader(cloud95_dataset, batch_size=16,
+                            shuffle=False, num_workers=6)
+
+    for i_batch, sample_batched in enumerate(dataloader):
+
+        print(i_batch, sample_batched['image'].size(),
+              sample_batched['gt'].size())
+
     num = np.random.randint(1, 26300)
-    sample = cloud95_dataset[i]
-    if i % 500 == 0 :
-        print(i)
-    #print(i, sample['image'].shape, sample['gt'].shape)
-    #show_image_gt(**sample)
+    sample = cloud95_dataset[num]
+
+    print(num, sample['image'].shape, sample['gt'].shape)
+    show_image_gt(**sample)
