@@ -1,5 +1,12 @@
 import torch
 import torch.nn as nn
+import pandas as pd
+from skimage import io, transform
+import numpy as np
+import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, utils
+import os
 
 
 class ConvBlock(nn.Module):
@@ -18,18 +25,52 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
+class ResidualBlcok(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, bias=True):
+        super().__init__()
+        pad = kernel_size // 2
+
+        self.main_path, self.shortcut_path = None, None
+
+        main_path_layers = []
+
+        main_path_layers.append(nn.Conv2d(in_channels, out_channels, kernel_size, padding=pad, bias=bias))
+        main_path_layers.append(nn.BatchNorm2d(out_channels))
+        main_path_layers.append(nn.ReLU())
+        self.main_path = nn.Sequential(*main_path_layers)
+
+        skip_layers = []
+        if in_channels != out_channels:
+            skip_layers.append(nn.Conv2d(in_channels, out_channels, 1, bias=False))
+        self.shortcut_path = nn.Sequential(*skip_layers)
+
+    def forward(self, x):
+        out = self.main_path(x)
+        out += self.shortcut_path(x)
+        out = torch.relu(out)
+        return out
+
+
 class ContractionBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, residual=False):
         super().__init__()
+        if residual:
+            self.path1 = nn.Sequential(
+                ResidualBlcok(in_channels, out_channels, 3),
+                ConvBlock(out_channels, out_channels, 1),
+                ResidualBlcok(out_channels, out_channels, 3)
+            )
 
-        self.path1 = nn.Sequential(
-            ConvBlock(in_channels, out_channels, 3),
-            ConvBlock(out_channels, out_channels, 1),
-            ConvBlock(out_channels, out_channels, 3)
-        )
+            self.path2 = ResidualBlcok(in_channels, in_channels, 1)
+        else:
+            self.path1 = nn.Sequential(
+                ConvBlock(in_channels, out_channels, 3),
+                ConvBlock(out_channels, out_channels, 1),
+                ConvBlock(out_channels, out_channels, 3)
+            )
 
-        self.path2 = ConvBlock(in_channels, in_channels, 1)
+            self.path2 = ConvBlock(in_channels, in_channels, 1)
 
         self.max_pool = nn.MaxPool2d(2)
 
@@ -75,16 +116,22 @@ class FeedForwardBlock(nn.Module):
 
 class ExpansionBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, residual=False):
         super().__init__()
 
         self.conv_t = nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2)
-
-        self.convs = nn.Sequential(
-            ConvBlock(in_channels, out_channels, 3),
-            ConvBlock(out_channels, out_channels, 3),
-            ConvBlock(out_channels, out_channels, 3)
-        )
+        if residual:
+            self.convs = nn.Sequential(
+                ConvBlock(in_channels, out_channels, 3),
+                ResidualBlcok(out_channels, out_channels, 3),
+                ResidualBlcok(out_channels, out_channels, 3)
+            )
+        else:
+            self.convs = nn.Sequential(
+                ConvBlock(in_channels, out_channels, 3),
+                ConvBlock(out_channels, out_channels, 3),
+                ConvBlock(out_channels, out_channels, 3)
+            )
 
     def forward(self, x, ff_input, contr_input):
         upscaled = ff_input
@@ -116,7 +163,7 @@ class UpsamplingBlock(nn.Module):
 
 class CloudNetPlus(nn.Module):
 
-    def __init__(self, input_channels=4, inception_depth=6):
+    def __init__(self, input_channels=4, inception_depth=6, residual=False):
         super().__init__()
         self.depth = inception_depth
         self.contr_layers = []
@@ -127,7 +174,7 @@ class CloudNetPlus(nn.Module):
         # Contraction layers
         channels = input_channels
         for i in range(inception_depth):
-            contr_block = ContractionBlock(channels, 2 * channels)
+            contr_block = ContractionBlock(channels, 2 * channels, residual=residual)
             channels *= 2
             self.contr_layers.append(contr_block)
         self.contr_layers = nn.ModuleList(self.contr_layers)
@@ -143,7 +190,7 @@ class CloudNetPlus(nn.Module):
         # Expansion layers
         for i in reversed(range(1, inception_depth)):
             factor = 2 ** (i + 1)
-            exp_block = ExpansionBlock(input_channels * factor * 2, input_channels * factor)
+            exp_block = ExpansionBlock(input_channels * factor * 2, input_channels * factor, residual=residual)
             self.exp_layers.append(exp_block)
         self.exp_layers = nn.ModuleList(self.exp_layers)
 
@@ -212,12 +259,47 @@ if __name__ == '__main__':
     x_0 = torch.rand(1, 6,64,64)
     y = block.forward([x_0, x_1, x_2])
     print(f'{x_2.shape} -> {y.shape}')'''
+    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device(dev)
 
-    block = CloudNetPlus(4, 6)
+    print(dev)
+
+    gt = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\gt_1.TIF') / 255).to(device)
+    red = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\red_1.TIF') / 65535).unsqueeze(0)
+    green = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\green_1.TIF') / 65535).unsqueeze(0)
+    blue = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\blue_1.TIF')/ 65535).unsqueeze(0)
+    nir = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\nir_1.TIF')/ 65535).unsqueeze(0)
+    rgb = torch.cat([red, green, blue, nir], dim=0).unsqueeze(0).to(device)
+    print(rgb.shape)
+    block = CloudNetPlus(4, 6).to(device)
     print(block)
     num_params = sum(p.numel() for p in block.parameters())
     print(f'# of parameters: {num_params}')
-    x = torch.rand(1, 4, 128,128)
-    y = block.forward(x)
-    print(f'{x.shape} -> {y.shape}')
+    x = torch.rand(1, 4, 192,192)
+    y = block.forward(rgb)
+    print(f'{rgb.shape} -> {y.shape}')
+
+    parameters = [x for x in block.parameters()]
+    optimizer = torch.optim.Adam(parameters, lr=100e-4)
+    from losses import FilteredJaccardLoss
+    loss_func = FilteredJaccardLoss()
+    for i in range(1000):
+        optimizer.zero_grad()
+
+        out = block(rgb)
+        if i % 100 == 0:
+            gray = out.detach().clone()
+            gray[out>=0.5] = 1
+            gray[out < 0.5] = 0
+            plt.imshow(gray.squeeze().cpu().detach().numpy(), cmap='gray')
+            plt.show()
+
+        loss = loss_func(out, gt)
+        print(f'iteration {i} loss : {loss.item()}')
+        loss.backward()
+        optimizer.step()
+    out = block(rgb)
+    plt.imshow(out)
+    plt.show()
+
 

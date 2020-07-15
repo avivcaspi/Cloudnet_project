@@ -110,36 +110,35 @@ class ToTensor(object):
                 'gt': torch.from_numpy(gt)}
 
 
-def show_image_gt(image, gt):
+def show_image_gt_batch(image, gt, pred=None):
     """Show image with gt"""
-    plt.figure()
-    plt.subplot(1, 2, 1)
-    plt.title('Image')
+    batch_size = image.shape[0]
     if isinstance(image, torch.Tensor):
-        image = image.numpy().transpose((1, 2, 0))
-    plt.imshow(image[:, :, :-1])
-    plt.subplot(1, 2, 2)
-    plt.title('GT')
-    plt.imshow(gt, cmap='gray')
+        image = image.numpy().transpose((0, 2, 3, 1))
+
+    fig, ax = plt.subplots(batch_size, 3, figsize=(20, batch_size * 5))
+    for i in range(batch_size):
+        ax[i, 0].imshow(image[i, :, :, :-1])
+        ax[i, 1].imshow(gt[i], cmap='gray')
+        ax[i, 2].imshow(pred[i], cmap='gray')
     plt.show()
 
 
 if __name__ == '__main__':
     cloud95_dataset = Cloud95Dataset(
-        csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+        csv_file='../data/95-cloud_train/training_patches_38-Cloud_nonempty.csv',
         root_dir='../data/95-cloud_train/',
         transform=transforms.Compose([Rescale(192), ToTensor()]))
 
-    dataloader = DataLoader(cloud95_dataset, batch_size=16,
-                            shuffle=False, num_workers=6)
+    dataloader = DataLoader(cloud95_dataset, batch_size=3,
+                            shuffle=False)
 
     for i_batch, sample_batched in enumerate(dataloader):
 
         print(i_batch, sample_batched['image'].size(),
               sample_batched['gt'].size())
+        show_image_gt_batch(sample_batched['image'], sample_batched['gt'])
 
-    num = np.random.randint(1, 26300)
-    sample = cloud95_dataset[num]
 
-    print(num, sample['image'].shape, sample['gt'].shape)
-    show_image_gt(**sample)
+
+
