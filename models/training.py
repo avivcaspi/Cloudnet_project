@@ -100,13 +100,15 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
             train_loss.append(epoch_loss) if phase == 'train' else valid_loss.append(epoch_loss)
 
             if phase == 'valid':
-                lr_scheduler.step(epoch_loss, epoch)
+                lr_scheduler.step(epoch_loss)
 
     time_elapsed = time.time() - start
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
     saved_state = dict(model_state=model.state_dict())
     torch.save(saved_state, 'saved_state')
     print(f'*** Saved checkpoint ***')
+    print(f'Finding best threshold:')
+    find_best_threshold(model, valid_dl)
     return train_loss, valid_loss
 
 
@@ -121,6 +123,7 @@ def acc_metric(pred, y, threshold=0.5):
 def valid_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
     is_cuda = next(model.parameters()).is_cuda
     dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
+    model.train(False)
     running_acc = 0.0
     running_loss = 0.0
     for sample_batched in valid_dl:
