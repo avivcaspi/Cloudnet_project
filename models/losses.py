@@ -7,7 +7,7 @@ class FilteredJaccardLoss(nn.Module):
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, epsilon=1e-8):
         """
         Calculate filtered Jaccard loss
-        :param y_pred: tensor shaped (batch_size x H x W ) with probability for each pixel
+        :param y_pred: tensor shaped (batch_size x H x W) with probability for each pixel
         :param y_true: tensor shaped (batch_size x H x W) of true class for each pixel
         :param epsilon: const for stability
         :return:

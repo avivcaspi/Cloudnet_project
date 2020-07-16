@@ -117,10 +117,15 @@ def show_image_gt_batch(image, gt, pred=None):
         image = image.numpy().transpose((0, 2, 3, 1))
 
     fig, ax = plt.subplots(batch_size, 3, figsize=(20, batch_size * 5))
-    for i in range(batch_size):
-        ax[i, 0].imshow(image[i, :, :, :-1])
-        ax[i, 1].imshow(gt[i], cmap='gray')
-        ax[i, 2].imshow(pred[i], cmap='gray')
+    if batch_size == 1:
+        ax[0].imshow(image[0, :, :, :-1])
+        ax[1].imshow(gt[0], cmap='gray')
+        ax[2].imshow(pred[0], cmap='gray')
+    else:
+        for i in range(batch_size):
+            ax[i, 0].imshow(image[i, :, :, :-1])
+            ax[i, 1].imshow(gt[i], cmap='gray')
+            ax[i, 2].imshow(pred[i], cmap='gray')
     plt.show()
 
 
