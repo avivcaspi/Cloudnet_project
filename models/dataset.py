@@ -62,6 +62,51 @@ class Cloud95Dataset(Dataset):
         return sample
 
 
+class SwinysegDataset(Dataset):
+    """swinyseg dataset."""
+
+    def __init__(self, csv_file, root_dir, transform=None):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        original_patches_name = pd.read_csv(csv_file)
+        patches_name = original_patches_name.copy()
+        for i in range(1, 6):
+            extra_patches = original_patches_name.copy()
+            extra_patches['Name'] = original_patches_name['Name'].str.replace('.jpg', f'_{i}.jpg')
+            patches_name = pd.concat([patches_name, extra_patches])
+        self.patches_name = patches_name
+        self.root_dir = root_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.patches_name)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_folder = 'images/'
+        gt_folder = 'GTmaps/'
+        img_name = os.path.join(self.root_dir,
+                                    img_folder + self.patches_name.iloc[idx, 0])
+        gt_map_name = os.path.join(self.root_dir,
+                                   gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+        image = io.imread(img_name) / 255
+        gt_img = io.imread(gt_map_name) / 255
+
+        sample = {'image': image, 'gt': gt_img}
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
+
+
 class Rescale(object):
     """Rescale the image in a sample to a given size.
 
@@ -118,23 +163,27 @@ def show_image_gt_batch(image, gt, pred=None):
 
     fig, ax = plt.subplots(batch_size, 3, figsize=(20, batch_size * 5))
     if batch_size == 1:
-        ax[0].imshow(image[0, :, :, :-1])
+        ax[0].imshow(image[0, :, :, :3])
         ax[1].imshow(gt[0], cmap='gray')
-        ax[2].imshow(pred[0], cmap='gray')
+        if pred is not None:
+            ax[2].imshow(pred[0], cmap='gray')
     else:
         for i in range(batch_size):
-            ax[i, 0].imshow(image[i, :, :, :-1])
+            ax[i, 0].imshow(image[i, :, :, :3])
             ax[i, 1].imshow(gt[i], cmap='gray')
-            ax[i, 2].imshow(pred[i], cmap='gray')
+            if pred is not None:
+                ax[i, 2].imshow(pred[i], cmap='gray')
     plt.show()
 
 
 if __name__ == '__main__':
-    cloud95_dataset = Cloud95Dataset(
-        csv_file='../data/95-cloud_train/training_patches_38-Cloud_nonempty.csv',
-        root_dir='../data/95-cloud_train/',
-        transform=transforms.Compose([Rescale(192), ToTensor()]))
+    cloud95_dataset = SwinysegDataset(
+        csv_file='../data/swinyseg/metadata.csv',
+        root_dir='../data/swinyseg/',
+        transform=ToTensor()
+        )
 
+    x = cloud95_dataset[1]
     dataloader = DataLoader(cloud95_dataset, batch_size=3,
                             shuffle=False)
 
