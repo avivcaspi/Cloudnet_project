@@ -13,6 +13,8 @@ class FilteredJaccardLoss(nn.Module):
         :return:
         """
 
+        if len(y_pred.shape) == 4:
+            y_pred = y_pred[:, 1, :, :]
         if y_true.sum() == 0:
             i = ((1 - y_true) * (1 - y_pred)).sum().float()
             u = ((1 - y_true) + (1 - y_pred)).sum().float()

@@ -10,6 +10,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from skimage import io
 
 
 def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
@@ -27,7 +28,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
     train_acc, valid_acc = [], []
 
     best_acc = 0.0
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=5, verbose=True, min_lr=1e-8)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=3, verbose=True, min_lr=1e-8)
 
     for epoch in range(epochs):
         print('Epoch {}/{}'.format(epoch, epochs - 1))
@@ -56,7 +57,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
                 if phase == 'train':
                     # zero the gradients
                     optimizer.zero_grad()
-                    outputs = model(x).squeeze(1)
+                    outputs = model(x)
                     loss = loss_fn(outputs, y)
 
                     # the backward pass frees the graph memory, so there is no
@@ -67,7 +68,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
 
                 else:
                     with torch.no_grad():
-                        outputs = model(x).squeeze(1)
+                        outputs = model(x)
                         loss = loss_fn(outputs, y.long())
 
                 # stats - whatever is the phase
@@ -79,7 +80,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
                 if epoch % 10 == 0 and flag:
                     with torch.no_grad():
                         outputs = model(x)
-                        show_image_gt_batch(x.cpu(), y.cpu(), outputs.squeeze(1).cpu())
+                        show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
                         flag = False
 
                 if step % 100 == 0:
@@ -116,33 +117,33 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
 
 def acc_metric(pred, y, threshold=0.5):
     dtype = pred.dtype
-    mask = pred.clone().detach()
-    mask[pred >= threshold] = 1
-    mask[pred < threshold] = 0
+    if len(pred.shape) == 4:
+        mask = torch.argmax(pred, 1)
+    else:
+        mask = pred.clone().detach()
+        mask[pred >= threshold] = 1
+        mask[pred < threshold] = 0
     return (mask == y.type(dtype)).float().mean()
 
 
-def valid_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
+def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
     is_cuda = next(model.parameters()).is_cuda
     dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
     model.train(False)
     running_acc = 0.0
-    running_loss = 0.0
+
     for sample_batched in valid_dl:
         x = sample_batched['image'].type(dtype)
         y = sample_batched['gt'].type(dtype)
         with torch.no_grad():
-            outputs = model(x).squeeze(1)
-            loss = loss_fn(outputs, y.long())
+            outputs = model(x)
         acc = acc_metric(outputs, y, threshold)
 
         running_acc += acc * valid_dl.batch_size
-        running_loss += loss * valid_dl.batch_size
 
-    total_loss = running_loss / len(valid_dl.dataset)
     total_acc = running_acc / len(valid_dl.dataset)
 
-    return total_acc, total_loss
+    return total_acc
 
 
 def find_best_threshold(model: torch.nn.Module, valid_dl: DataLoader):
@@ -150,7 +151,7 @@ def find_best_threshold(model: torch.nn.Module, valid_dl: DataLoader):
     best_acc = 0.0
     best_t = 0.0
     for t in thresholds:
-        acc, _ = valid_acc(model, valid_dl, t)
+        acc = validation_acc(model, valid_dl, t)
         if best_acc < acc:
             best_acc = acc
             best_t = t
@@ -164,23 +165,15 @@ def init_weights(layer):
 
 
 if __name__ == "__main__":
-    # Little test
-    '''cloud_net = CloudNetPlus(4, 6, residual=True)
+    # Training phase
+    cloud_net = CloudNetPlus(3, 6, residual=True, softmax=True)
     print(cloud_net)
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
-    dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
-                             root_dir='../data/95-cloud_train/',
-                             transform=transforms.Compose([Rescale(192), ToTensor()]))'''
-
-    cloud_net = CloudNetPlus(3, 6, residual=True)
-    print(cloud_net)
-    num_params = sum(p.numel() for p in cloud_net.parameters())
-    print(f'# of parameters: {num_params}')
-    cloud_net.apply(init_weights)
     dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(256), ToTensor()]))
+
     length = len(dataset)
     train_size = int(0.85 * length)
     print(f'train set size is : {train_size}')
@@ -205,10 +198,20 @@ if __name__ == "__main__":
     plt.legend()
     plt.show()
 
-    '''saved_state = torch.load('saved_state', map_location='cpu')
-        cloud_net.load_state_dict(saved_state['model_state'])
-        cloud_net.type(torch.cuda.FloatTensor)
-        find_best_threshold(cloud_net, valid_dl)'''
+    '''saved_state = torch.load('saved_state_95-cloud', map_location='cpu')
+    cloud_net.load_state_dict(saved_state['model_state'])
+    cloud_net.type(torch.cuda.FloatTensor)
+    scale = Rescale(384)
+    for sample in dataset:
+        x = sample['image'].type(torch.cuda.FloatTensor).unsqueeze(0)
+        patch_name = sample['patch_name']
+        with torch.no_grad():
+            output = cloud_net(x).squeeze(0).squeeze(0)
+            output[output >= 0.5] = 1
+            output[output < 0.5] = 0
+
+        temp_dict = {'image': output.cpu().numpy(), 'gt': None}
+        io.imsave(f'../data/95-cloud_test/test_pred/{patch_name}.TIF', scale(temp_dict)['image'])
+'''
 
     # TODO add check of best threshold inside the training instead of at the end
-    # TODO initialize the weights using Xaviar dist
