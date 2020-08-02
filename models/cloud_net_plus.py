@@ -25,7 +25,7 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
-class ResidualBlcok(nn.Module):
+class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, bias=True):
         super().__init__()
         pad = kernel_size // 2
@@ -57,12 +57,12 @@ class ContractionBlock(nn.Module):
         super().__init__()
         if residual:
             self.path1 = nn.Sequential(
-                ResidualBlcok(in_channels, out_channels, 3),
+                ResidualBlock(in_channels, out_channels, 3),
                 ConvBlock(out_channels, out_channels, 1),
-                ResidualBlcok(out_channels, out_channels, 3)
+                ResidualBlock(out_channels, out_channels, 3)
             )
 
-            self.path2 = ResidualBlcok(in_channels, in_channels, 1)
+            self.path2 = ResidualBlock(in_channels, in_channels, 1)
         else:
             self.path1 = nn.Sequential(
                 ConvBlock(in_channels, out_channels, 3),
@@ -123,8 +123,8 @@ class ExpansionBlock(nn.Module):
         if residual:
             self.convs = nn.Sequential(
                 ConvBlock(in_channels, out_channels, 3),
-                ResidualBlcok(out_channels, out_channels, 3),
-                ResidualBlcok(out_channels, out_channels, 3)
+                ResidualBlock(out_channels, out_channels, 3),
+                ResidualBlock(out_channels, out_channels, 3)
             )
         else:
             self.convs = nn.Sequential(
@@ -248,17 +248,6 @@ class CloudNetPlus(nn.Module):
 
 
 if __name__ == '__main__':
-    '''block = FeedForwardBlock(24, 2)
-    print(block)
-
-    num_params = sum(p.numel() for p in block.parameters())
-    print(f'# of parameters: {num_params}')
-
-    x_2 = torch.rand(1, 24,16,16)
-    x_1 = torch.rand(1, 12,32,32)
-    x_0 = torch.rand(1, 6,64,64)
-    y = block.forward([x_0, x_1, x_2])
-    print(f'{x_2.shape} -> {y.shape}')'''
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = torch.device(dev)
 
