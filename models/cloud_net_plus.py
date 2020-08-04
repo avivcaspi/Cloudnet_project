@@ -247,7 +247,7 @@ class CloudNetPlus(nn.Module):
         # Final layer
         output = self.final_layer(output)
         if not self.softmax:
-            output = output.squeeze()
+            output = output.squeeze(1)
         return output
 
 

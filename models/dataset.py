@@ -12,7 +12,7 @@ import os
 class Cloud95Dataset(Dataset):
     """95 - Cloud dataset."""
 
-    def __init__(self, csv_file, root_dir, transform=None, train=True):
+    def __init__(self, csv_file, root_dir, transform=None, train=True, use_nir=True):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -24,6 +24,7 @@ class Cloud95Dataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.train = train
+        self.nir = use_nir
 
     def __len__(self):
         return len(self.patches_name)
@@ -45,8 +46,7 @@ class Cloud95Dataset(Dataset):
                                      blue_str + self.patches_name.iloc[idx, 0] + '.TIF')
         green_img_name = os.path.join(self.root_dir,
                                       green_str + self.patches_name.iloc[idx, 0] + '.TIF')
-        nir_img_name = os.path.join(self.root_dir,
-                                    nir_str + self.patches_name.iloc[idx, 0] + '.TIF')
+
         if self.train:
             gt_img_name = os.path.join(self.root_dir,
                                        gt_str + self.patches_name.iloc[idx, 0] + '.TIF')
@@ -55,9 +55,13 @@ class Cloud95Dataset(Dataset):
         red_img = np.expand_dims(io.imread(red_img_name) / 65535, axis=-1)
         green_img = np.expand_dims(io.imread(green_img_name) / 65535, axis=-1)
         blue_img = np.expand_dims(io.imread(blue_img_name) / 65535, axis=-1)
-        nir_img = np.expand_dims(io.imread(nir_img_name) / 65535, axis=-1)
 
-        image = np.concatenate([red_img, green_img, blue_img, nir_img], axis=-1)
+        image = np.concatenate([red_img, green_img, blue_img], axis=-1)
+        if self.nir:
+            nir_img_name = os.path.join(self.root_dir,
+                                        nir_str + self.patches_name.iloc[idx, 0] + '.TIF')
+            nir_img = np.expand_dims(io.imread(nir_img_name) / 65535, axis=-1)
+            image = np.concatenate([image, nir_img], axis=-1)
 
         sample = {'image': image, 'gt': gt_img, 'patch_name': self.patches_name.iloc[idx, 0]}
 
@@ -185,6 +189,25 @@ def show_image_gt_batch(image, gt, pred=None):
             ax[i, 1].imshow(gt[i], cmap='gray')
             if pred is not None:
                 ax[i, 2].imshow(pred[i], cmap='gray')
+    plt.show()
+
+
+def show_image_inference_batch(image, pred):
+    """Show image with gt"""
+    batch_size = image.shape[0]
+    if isinstance(image, torch.Tensor):
+        image = image.numpy().transpose((0, 2, 3, 1))
+    if len(pred.shape) == 4:
+        pred = pred[:, 1, :, :]
+
+    fig, ax = plt.subplots(batch_size, 2, figsize=(20, batch_size * 5))
+    if batch_size == 1:
+        ax[0].imshow(image[0, :, :, :3])
+        ax[1].imshow(pred[0], cmap='gray')
+    else:
+        for i in range(batch_size):
+            ax[i, 0].imshow(image[i, :, :, :3])
+            ax[i, 1].imshow(pred[i], cmap='gray')
     plt.show()
 
 

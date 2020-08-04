@@ -5,7 +5,7 @@ import numpy as np
 import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
 from losses import FilteredJaccardLoss
-from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch
+from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch
 from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -164,15 +164,36 @@ def init_weights(layer):
         torch.nn.init.xavier_uniform_(layer.weight)
 
 
+def inference(model: nn.Module, images: torch.Tensor, saved_state=None):
+    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if dev is 'cuda':
+        dtype = torch.cuda.FloatTensor
+    else:
+        dtype = torch.FloatTensor
+    # print(f'Using device {device}')
+
+    if saved_state is not None:
+        model.load_state_dict(saved_state['model_state'])
+
+    model.type(dtype)
+    if images.ndim == 3:
+        images = images.unsqueeze(0)
+    images.type(dtype)
+    with torch.no_grad():
+        output = model(images)
+    show_image_inference_batch(images, output)
+
+
 if __name__ == "__main__":
     # Training phase
     cloud_net = CloudNetPlus(3, 6, residual=True, softmax=True)
     print(cloud_net)
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
-    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
-                              root_dir='../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(256), ToTensor()]))
+    dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+                             root_dir='../data/95-cloud_train/',
+                             transform=transforms.Compose([Rescale(192), ToTensor()]),
+                             use_nir=False)
 
     length = len(dataset)
     train_size = int(0.85 * length)
