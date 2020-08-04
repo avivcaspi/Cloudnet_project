@@ -180,10 +180,17 @@ def show_image_gt_batch(image, gt, pred=None):
     fig, ax = plt.subplots(batch_size, 3, figsize=(20, batch_size * 5))
     if batch_size == 1:
         ax[0].imshow(image[0, :, :, :3])
+        ax[0].set_title('Image')
         ax[1].imshow(gt[0], cmap='gray')
+        ax[1].set_title('gt')
         if pred is not None:
             ax[2].imshow(pred[0], cmap='gray')
+            ax[2].set_title('Pred')
     else:
+        ax[0, 0].set_title('Image')
+        ax[0, 1].set_title('gt')
+        if pred is not None:
+            ax[0, 2].set_title('Pred')
         for i in range(batch_size):
             ax[i, 0].imshow(image[i, :, :, :3])
             ax[i, 1].imshow(gt[i], cmap='gray')
@@ -202,9 +209,13 @@ def show_image_inference_batch(image, pred):
 
     fig, ax = plt.subplots(batch_size, 2, figsize=(20, batch_size * 5))
     if batch_size == 1:
+        ax[0].set_title('Image')
         ax[0].imshow(image[0, :, :, :3])
+        ax[1].set_title('Pred')
         ax[1].imshow(pred[0], cmap='gray')
     else:
+        ax[0, 0].set_title('Image')
+        ax[0, 1].set_title('Pred')
         for i in range(batch_size):
             ax[i, 0].imshow(image[i, :, :, :3])
             ax[i, 1].imshow(pred[i], cmap='gray')

@@ -10,7 +10,8 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from skimage import io
+from skimage import io, transform
+import cv2
 
 
 def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
@@ -165,26 +166,18 @@ def init_weights(layer):
 
 
 def inference(model: nn.Module, images: torch.Tensor, saved_state=None):
-    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
-    if dev is 'cuda':
-        dtype = torch.cuda.FloatTensor
-    else:
-        dtype = torch.FloatTensor
-    # print(f'Using device {device}')
-
     if saved_state is not None:
         model.load_state_dict(saved_state['model_state'])
 
-    model.type(dtype)
+    model.eval()
     if images.ndim == 3:
         images = images.unsqueeze(0)
-    images.type(dtype)
     with torch.no_grad():
         output = model(images)
-    show_image_inference_batch(images, output)
+    show_image_inference_batch(images.cpu(), output.cpu())
 
 
-if __name__ == "__main__":
+def train_network():
     # Training phase
     cloud_net = CloudNetPlus(3, 6, residual=True, softmax=True)
     print(cloud_net)
@@ -219,20 +212,81 @@ if __name__ == "__main__":
     plt.legend()
     plt.show()
 
-    '''saved_state = torch.load('saved_state_95-cloud', map_location='cpu')
-    cloud_net.load_state_dict(saved_state['model_state'])
-    cloud_net.type(torch.cuda.FloatTensor)
+
+def get_dtype():
+    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device(dev)
+    if dev is 'cuda':
+        dtype = torch.cuda.FloatTensor
+    else:
+        dtype = torch.FloatTensor
+    # print(f'Using device {device}')
+    return dtype
+
+
+def show_inference():
+    dtype = get_dtype()
+    model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
+    saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
+                              root_dir='../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(256), ToTensor()]))
+    dl = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
+    batch = next(iter(dl))['image'].type(dtype)
+    inference(model, batch, saved_state=saved_state)
+
+
+def from_video():
+    dtype = get_dtype()
+    model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
+    saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
+    model.load_state_dict(saved_state['model_state'])
+    model.type(dtype).eval()
+
+    cap = cv2.VideoCapture(0)
+
+    while (True):
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+
+        frame = frame / 255
+        frame_scaled = frame[:256, :256]
+        frame_T = frame_scaled.transpose((2, 0, 1))
+        frame_tensor = torch.from_numpy(frame_T).unsqueeze(0).type(dtype)
+        with torch.no_grad():
+            output = model(frame_tensor)[0, 0, :, :].unsqueeze(0)
+            output = cv2.cvtColor(output.cpu().numpy().transpose(1, 2, 0), cv2.COLOR_GRAY2RGB)
+
+        # Display the resulting frame
+        cv2.imshow('frame', np.concatenate((output, frame_scaled), axis=1))
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # When everything done, release the capture
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    from_video()
+    '''dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+                             root_dir='../data/95-cloud_train/',
+                             transform=transforms.Compose([Rescale(192), ToTensor()]),
+                             use_nir=False)
+    saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
+    model.load_state_dict(saved_state['model_state'])
+    model.type(torch.cuda.FloatTensor)
     scale = Rescale(384)
     for sample in dataset:
         x = sample['image'].type(torch.cuda.FloatTensor).unsqueeze(0)
         patch_name = sample['patch_name']
         with torch.no_grad():
-            output = cloud_net(x).squeeze(0).squeeze(0)
+            output = model(x).squeeze(0).squeeze(0)
             output[output >= 0.5] = 1
             output[output < 0.5] = 0
 
         temp_dict = {'image': output.cpu().numpy(), 'gt': None}
-        io.imsave(f'../data/95-cloud_test/test_pred/{patch_name}.TIF', scale(temp_dict)['image'])
-'''
+        print('2')'''
 
     # TODO add check of best threshold inside the training instead of at the end
