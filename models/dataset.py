@@ -207,15 +207,15 @@ def show_image_inference_batch(image, pred):
     if len(pred.shape) == 4:
         pred = pred[:, 1, :, :]
 
-    fig, ax = plt.subplots(batch_size, 2, figsize=(20, batch_size * 5))
+    fig, ax = plt.subplots(batch_size, 2, figsize=(13, batch_size * 5))
     if batch_size == 1:
-        ax[0].set_title('Image')
+        ax[0].set_title('Image', fontweight="bold", size=20)
         ax[0].imshow(image[0, :, :, :3])
-        ax[1].set_title('Pred')
+        ax[1].set_title('Pred', fontweight="bold", size=20)
         ax[1].imshow(pred[0], cmap='gray')
     else:
-        ax[0, 0].set_title('Image')
-        ax[0, 1].set_title('Pred')
+        ax[0, 0].set_title('Image', fontweight="bold", size=20)
+        ax[0, 1].set_title('Pred', fontweight="bold", size=20)
         for i in range(batch_size):
             ax[i, 0].imshow(image[i, :, :, :3])
             ax[i, 1].imshow(pred[i], cmap='gray')

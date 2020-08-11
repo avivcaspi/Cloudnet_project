@@ -269,24 +269,24 @@ def from_video():
 
 
 if __name__ == "__main__":
-    from_video()
-    '''dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+    #show_inference()
+    dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
                              root_dir='../data/95-cloud_train/',
                              transform=transforms.Compose([Rescale(192), ToTensor()]),
                              use_nir=False)
+    dl = DataLoader(dataset, 4, num_workers=4, shuffle=True)
+    batch = next(iter(dl))['image']
+
+    model = CloudNetPlus(3, 6, residual=True, softmax=True)
     saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
     model.load_state_dict(saved_state['model_state'])
     model.type(torch.cuda.FloatTensor)
-    scale = Rescale(384)
-    for sample in dataset:
-        x = sample['image'].type(torch.cuda.FloatTensor).unsqueeze(0)
-        patch_name = sample['patch_name']
-        with torch.no_grad():
-            output = model(x).squeeze(0).squeeze(0)
-            output[output >= 0.5] = 1
-            output[output < 0.5] = 0
 
-        temp_dict = {'image': output.cpu().numpy(), 'gt': None}
-        print('2')'''
+    x = batch.type(torch.cuda.FloatTensor)
 
-    # TODO add check of best threshold inside the training instead of at the end
+    with torch.no_grad():
+        output = model(x)
+
+    show_image_inference_batch(batch, output.cpu())
+
+
