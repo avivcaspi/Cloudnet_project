@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import time
-from skimage.morphology import binary_erosion, square, disk, binary_opening, thin
+from skimage.morphology import binary_erosion, square, disk, binary_opening, thin, binary_dilation
 
 from dataset import SwinysegDataset
 
@@ -120,6 +120,37 @@ def BFS(orig_img, p):
                     if img[child] == 1.0:
                         open_list.append(child)
     return img
+
+
+def DFS_util(img, p):
+    img[p] = 0.5
+    flag = True
+    best_len = 0
+    best_p = None
+    for i in [-1, 0, 1]:
+        for j in [-1, 0, 1]:
+            if i == 0 and j == 0:
+                continue
+            child = (p[0] + i, p[1] + j)
+            if 0 <= child[0] < img.shape[0] and 0 <= child[1] < img.shape[1] and img[child] == 1.0:
+                flag = False
+                length, end = DFS_util(img, child)
+                if length > best_len:
+                    best_p = end
+                    best_len = length
+    if flag:
+        return 1, p
+    return best_len + 1, best_p
+
+
+def DFS(orig_img, p):
+    img = orig_img.copy()
+    length = 0
+    end = p
+    if img[p] == 1.0:
+        length, end = DFS_util(img, p)
+
+    return img, length, end
 
 
 def weighted_astar(img, start, finish, w=0.5):
@@ -252,18 +283,51 @@ def thin_and_connect(img, verbose=False):
         routes.append(res_img)
         thin_img -= bfs_img
 
-    final_res = sum(routes)
+    res_thin = sum(routes)
+    final_res = binary_dilation(res_thin, square(3)).astype(float)
+    fixed_res = final_res * img  # In case the dilation made the scribble go out of line
     fig, ax = plt.subplots(1, 2, figsize=(10, 5))
     ax[0].imshow(final_res, cmap='gray')
     ax[0].set_title('Final gt', fontweight="bold", size=20)
     ax[1].imshow(img - final_res, cmap='gray')
     ax[1].set_title('Weakly', fontweight="bold", size=20)
+
     plt.show()
-    return final_res, img - final_res
+    return fixed_res, img - fixed_res
 
 
 if __name__ == '__main__':
     start_time = time.time()
+
+    '''dataset = SwinysegDataset(
+        csv_file='../data/swinyseg/metadata.csv',
+        root_dir='../data/swinyseg/'
+    )
+
+
+    img = np.zeros((100, 100), dtype=float)
+    img[20:80, 30:70] = 1.0
+
+    img = dataset[1]['gt']
+
+    thin_img = thin(img).astype(float)
+
+    p = (62, 166)
+    plt.imshow(thin_img, cmap='gray')
+    plt.show()
+    _, length, q = DFS(thin_img, p)
+    end_node = weighted_astar(thin_img, p, q)
+    res_img = np.zeros_like(img)
+    if end_node is None:
+        print('Route not found')
+    else:
+        res_img[end_node.p] = 1.0
+    while end_node is not None and end_node.father is not None:
+        p = end_node.p
+        res_img[p] = 1.0
+        end_node = end_node.father
+    plt.imshow(res_img, cmap='gray')
+    plt.show()'''
 
     dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
