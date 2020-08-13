@@ -233,7 +233,11 @@ def thin_and_connect(orig_img, verbose=0):
     img = orig_img.copy()
     thin_img = thin(img).astype(float)
     w, h = img.shape
-
+    if sum(sum(thin_img)) == 0:
+        print('Thin image is all black ')
+        plt.figure()
+        plt.imshow(orig_img, cmap='gray')
+        return thin_img
     while sum(sum(thin_img)) > 0:
         thin_len = 1
         route_len = 0
@@ -371,21 +375,18 @@ if __name__ == '__main__':
         root_dir='../data/swinyseg/'
     )
     length = len(dataset)
-    process_len = round(length / 4)
-    dataset_1, dataset_2, dataset_3, dataset_4 = \
-        data.random_split(dataset, [process_len, process_len, process_len, length - 3 * process_len])
-    p1 = Process(target=convert_dataset_to_weakly, args=(dataset_1,))
-    p1.start()
-    p2 = Process(target=convert_dataset_to_weakly, args=(dataset_2,))
-    p2.start()
-    p3 = Process(target=convert_dataset_to_weakly, args=(dataset_3,))
-    p3.start()
-    p4 = Process(target=convert_dataset_to_weakly, args=(dataset_4,))
-    p4.start()
-    p1.join()
-    p2.join()
-    p3.join()
-    p4.join()
+    num_threads = 4
+    rest = dataset
+    process_len = round(length / num_threads)
+    lens = [process_len] * (num_threads - 1)
+    lens.append(length - ((num_threads - 1) * process_len))
+    subsets = data.random_split(dataset, lens)
+    threads = []
+    for subset in subsets:
+        threads.append(Process(target=convert_dataset_to_weakly, args=(subset,)))
+        threads[-1].start()
+    for thread in threads:
+        thread.join()
 
     '''weakly_path = '../data/swinyseg/WeaklyGT/'
     full_res_path = '../data/swinyseg/WeaklyFull/'
