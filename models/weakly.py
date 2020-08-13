@@ -237,7 +237,7 @@ def thin_and_connect(orig_img, verbose=0):
         print('Thin image is all black ')
         plt.figure()
         plt.imshow(orig_img, cmap='gray')
-        return thin_img
+        return thin_img, orig_img
     while sum(sum(thin_img)) > 0:
         thin_len = 1
         route_len = 0
