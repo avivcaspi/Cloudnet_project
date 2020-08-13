@@ -3,8 +3,11 @@ import torch
 import matplotlib.pyplot as plt
 import time
 from skimage.morphology import binary_erosion, square, disk, binary_opening, thin, binary_dilation
-
+from torchvision.utils import save_image
 from dataset import SwinysegDataset
+from multiprocessing import Process
+import multiprocessing
+import torch.utils.data as data
 
 
 class Node:
@@ -13,7 +16,7 @@ class Node:
         self.h = h
         self.father = father
         self.g = g
-        self.f = w * h + (1-w) * g
+        self.f = w * h + (1 - w) * g
 
     def __eq__(self, other):
         if self.p == other.p:
@@ -111,12 +114,13 @@ def BFS(orig_img, p):
         q = open_list.pop(0)
         img[q] = 0.5
         close_list.append(q)
-        for i in [-1,0, 1]:
+        for i in [-1, 0, 1]:
             for j in [-1, 0, 1]:
                 if i == 0 and j == 0:
                     continue
                 child = (q[0] + i, q[1] + j)
-                if 0 <= child[0] < img.shape[0] and 0 <= child[1] < img.shape[1] and child not in open_list and child not in close_list:
+                if 0 <= child[0] < img.shape[0] and 0 <= child[1] < img.shape[1] and\
+                        child not in open_list and child not in close_list:
                     if img[child] == 1.0:
                         open_list.append(child)
     return img
@@ -153,7 +157,7 @@ def DFS(orig_img, p):
     return img, length, end
 
 
-def weighted_astar(img, start, finish, w=0.5):
+def weighted_astar(img, start, finish, w=0.5, verbose=0):
     open_nodes = []
     close_nodes = []
 
@@ -165,7 +169,8 @@ def weighted_astar(img, start, finish, w=0.5):
         current = open_nodes.pop(0)
         close_nodes.append(current)
         if current.p == finish:
-            print('found end')
+            if verbose:
+                print('found end')
             end_node = current
             break
         img[current.p] = 0.8
@@ -223,8 +228,9 @@ def open_and_erode(img):
     plt.show()
 
 
-def thin_and_connect(img, verbose=False):
+def thin_and_connect(orig_img, verbose=0):
     routes = []
+    img = orig_img.copy()
     thin_img = thin(img).astype(float)
     w, h = img.shape
 
@@ -232,8 +238,13 @@ def thin_and_connect(img, verbose=False):
         thin_len = 1
         route_len = 0
         j = 0
-        while route_len < 0.2 * thin_len:
+        q = 0.35
+        while route_len < q * thin_len:
             j += 1
+            if j % 5 == 0:
+                q *= 0.8 if q > 0.08 else 0.08
+                if verbose:
+                    print(f'Size was decreased to {q}')
             i = 0
             while True:
                 i += 1
@@ -246,14 +257,16 @@ def thin_and_connect(img, verbose=False):
                 x2 = np.random.randint(0, h)
                 y2 = np.random.randint(0, w)
                 if thin_img[x2, y2] == 1:
-                    print(f'Start = ({x1}, {y1}),  Finish = ({x2}, {y2}). Found after {i} tries')
+                    if verbose:
+                        print(f'Start = ({x1}, {y1}),  Finish = ({x2}, {y2}). Found after {i} tries')
                     break
             start, finish = (x1, y1), (x2, y2)
-            end_node = weighted_astar(thin_img.copy(), start, finish, w=1)
+            end_node = weighted_astar(thin_img.copy(), start, finish, w=1, verbose=verbose)
             res_img = np.zeros_like(img, dtype=float)
             if end_node is None:
-                print('Route not found')
-            while end_node is not None and end_node.father is not None:
+                if verbose:
+                    print('Route not found')
+            while end_node is not None:
                 p = end_node.p
                 res_img[p] = 1.0
                 end_node = end_node.father
@@ -262,12 +275,15 @@ def thin_and_connect(img, verbose=False):
             bfs_img[bfs_img != 0.5] = 0
             bfs_img[bfs_img != 0] = 1
             thin_len = sum(sum(bfs_img))
-            print(f'Thin len = {thin_len}, Route len = {route_len}')
 
+            if verbose:
+                print(f'Thin len = {thin_len}, Route len = {route_len}')
             final_img = img.copy() - res_img
-
-        print(f'Good route after {j} tries')
+            if thin_len < 5:
+                continue
         if verbose:
+            print(f'Good route after {j} tries')
+        if verbose == 2:
             fig, ax = plt.subplots(1, 5, figsize=(20, 10))
             ax[0].imshow(img, cmap='gray')
             ax[0].set_title('Original', fontweight="bold", size=20)
@@ -286,14 +302,35 @@ def thin_and_connect(img, verbose=False):
     res_thin = sum(routes)
     final_res = binary_dilation(res_thin, square(3)).astype(float)
     fixed_res = final_res * img  # In case the dilation made the scribble go out of line
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-    ax[0].imshow(final_res, cmap='gray')
-    ax[0].set_title('Final gt', fontweight="bold", size=20)
-    ax[1].imshow(img - final_res, cmap='gray')
-    ax[1].set_title('Weakly', fontweight="bold", size=20)
+    if verbose:
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].imshow(fixed_res, cmap='gray')
+        ax[0].set_title('Final gt', fontweight="bold", size=20)
+        ax[1].imshow(orig_img - 0.5 * fixed_res, cmap='gray')
+        ax[1].set_title('Weakly', fontweight="bold", size=20)
+        plt.show()
 
-    plt.show()
-    return fixed_res, img - fixed_res
+    return fixed_res, img - 0.5 * fixed_res
+
+
+def convert_dataset_to_weakly(dataset):
+    p_start_time = time.time()
+    weakly_path = '../data/swinyseg/WeaklyGT/'
+    full_res_path = '../data/swinyseg/WeaklyFull/'
+    i = 0
+
+    for sample in dataset:
+        i += 1
+        if i % 100 == 0:
+            print(f'Done {i} images in proccess {multiprocessing.current_process()} in {time.time() - p_start_time} seconds')
+        gt = sample['gt']
+        patch_name = sample['patch_name']
+        final_res, full_res = thin_and_connect(gt, 0)
+        final_res = torch.from_numpy(final_res)
+        full_res = torch.from_numpy(full_res)
+        save_image(final_res, weakly_path + patch_name, 'png')
+        save_image(full_res, full_res_path + patch_name, 'png')
+    print(f'{multiprocessing.current_process()} finished in {time.time() - p_start_time} seconds')
 
 
 if __name__ == '__main__':
@@ -333,27 +370,49 @@ if __name__ == '__main__':
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'
     )
+    length = len(dataset)
+    process_len = round(length / 4)
+    dataset_1, dataset_2, dataset_3, dataset_4 = \
+        data.random_split(dataset, [process_len, process_len, process_len, length - 3 * process_len])
+    p1 = Process(target=convert_dataset_to_weakly, args=(dataset_1,))
+    p1.start()
+    p2 = Process(target=convert_dataset_to_weakly, args=(dataset_2,))
+    p2.start()
+    p3 = Process(target=convert_dataset_to_weakly, args=(dataset_3,))
+    p3.start()
+    p4 = Process(target=convert_dataset_to_weakly, args=(dataset_4,))
+    p4.start()
+    p1.join()
+    p2.join()
+    p3.join()
+    p4.join()
+
+    '''weakly_path = '../data/swinyseg/WeaklyGT/'
+    full_res_path = '../data/swinyseg/WeaklyFull/'
     i = 0
     res, full = [], []
     for sample in dataset:
         i += 1
+        if i % 100 == 0:
+            print(f'Done {i} images')
         gt = sample['gt']
+        patch_name = sample['patch_name']
+        final_res, full_res = thin_and_connect(gt, 0)
+        final_res = torch.from_numpy(final_res)
+        full_res = torch.from_numpy(full_res)
+        save_image(final_res, weakly_path + patch_name, 'png')
+        save_image(full_res, full_res_path + patch_name, 'png')
 
-        final_res, weakly = thin_and_connect(gt, True)
-        res.append(final_res)
-        full.append(weakly)
-        if i > 5:
-            break
+        # res.append(final_res)
+        # full.append(weakly)'''
 
-    fig, ax = plt.subplots(len(full), 2, figsize=(10, len(full) * 5))
+    '''fig, ax = plt.subplots(len(full), 2, figsize=(10, len(full) * 5))
     ax[0, 0].set_title('Final gt', fontweight="bold", size=20)
     ax[0, 1].set_title('Full image', fontweight="bold", size=20)
     for i, (final_gt, full_gt) in enumerate(zip(res, full)):
         ax[i, 0].imshow(final_gt, cmap='gray')
         ax[i, 1].imshow(full_gt, cmap='gray')
 
-    plt.show()
+    plt.show()'''
 
-    print(time.time() - start_time)
-
-
+    print(f'Finished  all images in {time.time() - start_time} seconds')

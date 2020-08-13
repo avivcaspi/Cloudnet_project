@@ -108,7 +108,7 @@ class SwinysegDataset(Dataset):
         image = io.imread(img_name) / 255
         gt_img = io.imread(gt_map_name) / 255
 
-        sample = {'image': image, 'gt': gt_img}
+        sample = {'image': image, 'gt': gt_img, 'patch_name': self.patches_name.iloc[idx, 0]}
 
         if self.transform:
             sample = self.transform(sample)
