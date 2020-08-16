@@ -26,6 +26,7 @@ class ConvBlock(nn.Module):
 
 
 class ResidualBlock(nn.Module):
+
     def __init__(self, in_channels, out_channels, kernel_size, bias=True):
         super().__init__()
         pad = kernel_size // 2
@@ -204,6 +205,7 @@ class CloudNetPlus(nn.Module):
             self.upsample_layers.append(upsampling_block)
         self.upsample_layers.append(UpsamplingBlock(input_channels * factor, out_channels, factor))
         self.upsample_layers = nn.ModuleList(self.upsample_layers)
+
         self.final_layer = nn.Sequential(nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
                                          nn.Softmax2d() if softmax else nn.Sigmoid())
 
@@ -248,6 +250,7 @@ class CloudNetPlus(nn.Module):
         output = self.final_layer(output)
         if not self.softmax:
             output = output.squeeze(1)
+            
         return output
 
 
@@ -257,25 +260,30 @@ if __name__ == '__main__':
 
     print(dev)
 
-    gt = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\gt_1.TIF') / 255).to(device)
-    red = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\red_1.TIF') / 65535).unsqueeze(0)
-    green = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\green_1.TIF') / 65535).unsqueeze(0)
-    blue = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\blue_1.TIF')/ 65535).unsqueeze(0)
-    nir = torch.Tensor(io.imread(r'C:\Users\Aviv\Documents\Cloudnet_project\data\nir_1.TIF')/ 65535).unsqueeze(0)
+    gt = torch.Tensor(io.imread(r'..\data\gt_1.TIF') / 255).to(device)
+    red = torch.Tensor(io.imread(r'..\data\red_1.TIF') / 65535).unsqueeze(0)
+    green = torch.Tensor(io.imread(r'..\data\green_1.TIF') / 65535).unsqueeze(0)
+    blue = torch.Tensor(io.imread(r'..\data\blue_1.TIF')/ 65535).unsqueeze(0)
+    nir = torch.Tensor(io.imread(r'..\data\nir_1.TIF')/ 65535).unsqueeze(0)
+
     rgb = torch.cat([red, green, blue, nir], dim=0).unsqueeze(0).to(device)
     print(rgb.shape)
+
     block = CloudNetPlus(4, 6).to(device)
     print(block)
     num_params = sum(p.numel() for p in block.parameters())
     print(f'# of parameters: {num_params}')
+
     x = torch.rand(1, 4, 192,192)
     y = block.forward(rgb)
     print(f'{rgb.shape} -> {y.shape}')
 
     parameters = [x for x in block.parameters()]
     optimizer = torch.optim.Adam(parameters, lr=100e-4)
+
     from losses import FilteredJaccardLoss
     loss_func = FilteredJaccardLoss()
+
     for i in range(1000):
         optimizer.zero_grad()
 
@@ -291,6 +299,7 @@ if __name__ == '__main__':
         print(f'iteration {i} loss : {loss.item()}')
         loss.backward()
         optimizer.step()
+        
     out = block(rgb)
     plt.imshow(out)
     plt.show()

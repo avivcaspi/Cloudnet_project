@@ -130,12 +130,14 @@ def acc_metric(pred, y, threshold=0.5):
 def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
     is_cuda = next(model.parameters()).is_cuda
     dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
+
     model.train(False)
     running_acc = 0.0
 
     for sample_batched in valid_dl:
         x = sample_batched['image'].type(dtype)
         y = sample_batched['gt'].type(dtype)
+
         with torch.no_grad():
             outputs = model(x)
         acc = acc_metric(outputs, y, threshold)
@@ -143,7 +145,6 @@ def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
         running_acc += acc * valid_dl.batch_size
 
     total_acc = running_acc / len(valid_dl.dataset)
-
     return total_acc
 
 
@@ -160,20 +161,17 @@ def find_best_threshold(model: torch.nn.Module, valid_dl: DataLoader):
     return best_t
 
 
-def init_weights(layer):
-    if type(layer) == nn.Conv2d:
-        torch.nn.init.xavier_uniform_(layer.weight)
-
-
 def inference(model: nn.Module, images: torch.Tensor, saved_state=None):
     if saved_state is not None:
         model.load_state_dict(saved_state['model_state'])
 
-    model.eval()
     if images.ndim == 3:
         images = images.unsqueeze(0)
+
+    model.eval()
     with torch.no_grad():
         output = model(images)
+
     show_image_inference_batch(images.cpu(), output.cpu())
 
 
@@ -183,18 +181,20 @@ def train_network():
     print(cloud_net)
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
+
     dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
                              root_dir='../data/95-cloud_train/',
                              transform=transforms.Compose([Rescale(192), ToTensor()]),
                              use_nir=False)
-
     length = len(dataset)
     train_size = int(0.85 * length)
     print(f'train set size is : {train_size}')
     print(f'validation set size is : {length - train_size}')
+
     train_ds, valid_ds = torch.utils.data.random_split(dataset, (train_size, length - train_size))
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
+    
     loss_fn = FilteredJaccardLoss()
     opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
@@ -226,13 +226,16 @@ def get_dtype():
 
 def show_inference():
     dtype = get_dtype()
+
     model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
     saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
+    
     dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(256), ToTensor()]))
     dl = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
     batch = next(iter(dl))['image'].type(dtype)
+
     inference(model, batch, saved_state=saved_state)
 
 
