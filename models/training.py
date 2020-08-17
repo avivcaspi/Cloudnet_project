@@ -161,18 +161,20 @@ def find_best_threshold(model: torch.nn.Module, valid_dl: DataLoader):
     return best_t
 
 
-def inference(model: nn.Module, images: torch.Tensor, saved_state=None):
+def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None):
     if saved_state is not None:
         model.load_state_dict(saved_state['model_state'])
 
     if images.ndim == 3:
         images = images.unsqueeze(0)
+    if gt is not None and gt.ndim == 3:
+        gt = gt.cpu()
 
     model.eval()
     with torch.no_grad():
         output = model(images)
 
-    show_image_inference_batch(images.cpu(), output.cpu())
+    show_image_inference_batch(images.cpu(), output.cpu(), gt=gt)
 
 
 def train_network():
@@ -224,7 +226,7 @@ def get_dtype():
     return dtype
 
 
-def show_inference():
+def show_inference(num_imgs=4, gt=False, print_patches=False):
     dtype = get_dtype()
 
     model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
@@ -233,10 +235,18 @@ def show_inference():
     dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(256), ToTensor()]))
-    dl = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
-    batch = next(iter(dl))['image'].type(dtype)
+    dl = DataLoader(dataset, batch_size=num_imgs, shuffle=True, num_workers=4)
+    
+    batch = next(iter(dl))
+    imgs = batch['image'].type(dtype)
+    gt_images = None
+    if gt:
+        gt_images = batch['gt'].type(dtype)
 
-    inference(model, batch, saved_state=saved_state)
+    if print_patches:
+        print(batch['patch_name'])
+    
+    inference(model, imgs, saved_state=saved_state, gt=gt_images)
 
 
 def from_video():
@@ -272,8 +282,8 @@ def from_video():
 
 
 if __name__ == "__main__":
-    #show_inference()
-    dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+    show_inference(num_imgs=4, gt=True, print_patches=True)
+    '''dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
                              root_dir='../data/95-cloud_train/',
                              transform=transforms.Compose([Rescale(192), ToTensor()]),
                              use_nir=False)
@@ -290,6 +300,6 @@ if __name__ == "__main__":
     with torch.no_grad():
         output = model(x)
 
-    show_image_inference_batch(batch, output.cpu())
+    show_image_inference_batch(batch, output.cpu())'''
 
 

@@ -199,26 +199,30 @@ def show_image_gt_batch(image, gt, pred=None):
     plt.show()
 
 
-def show_image_inference_batch(image, pred):
+def show_image_inference_batch(image, pred, gt=None):
     """Show image with gt"""
-    batch_size = image.shape[0]
     if isinstance(image, torch.Tensor):
         image = image.numpy().transpose((0, 2, 3, 1))
     if len(pred.shape) == 4:
         pred = pred[:, 1, :, :]
 
-    fig, ax = plt.subplots(batch_size, 2, figsize=(13, batch_size * 5))
+    batch_size = image.shape[0]
+    num_cols = 2 if gt is None else 3
+    fig, axes = plt.subplots(batch_size, num_cols, figsize=(12, batch_size * 5))
+
     if batch_size == 1:
-        ax[0].set_title('Image', fontweight="bold", size=20)
-        ax[0].imshow(image[0, :, :, :3])
-        ax[1].set_title('Pred', fontweight="bold", size=20)
-        ax[1].imshow(pred[0], cmap='gray')
-    else:
-        ax[0, 0].set_title('Image', fontweight="bold", size=20)
-        ax[0, 1].set_title('Pred', fontweight="bold", size=20)
-        for i in range(batch_size):
-            ax[i, 0].imshow(image[i, :, :, :3])
-            ax[i, 1].imshow(pred[i], cmap='gray')
+        axes = axes.reshape([1, num_cols])
+
+    titles = ['Image', 'Pred', 'GT']
+    for i in range(num_cols):
+        axes[0, i].set_title(titles[i])
+
+    for i in range(batch_size):
+        axes[i, 0].imshow(image[i, :, :, :3])
+        axes[i, 1].imshow(pred[i], cmap='gray')
+        if gt is not None:
+            axes[i, 2].imshow(gt[i], cmap='gray')
+    
     plt.show()
 
 
