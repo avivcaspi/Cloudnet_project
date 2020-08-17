@@ -196,6 +196,7 @@ def show_image_gt_batch(image, gt, pred=None):
             ax[i, 1].imshow(gt[i], cmap='gray')
             if pred is not None:
                 ax[i, 2].imshow(pred[i], cmap='gray')
+                
     plt.show()
 
 
@@ -223,6 +224,7 @@ def show_image_inference_batch(image, pred, gt=None):
         if gt is not None:
             axes[i, 2].imshow(gt[i], cmap='gray')
     
+    plt.setp(axes, xticks=[], yticks=[])
     plt.show()
 
 
