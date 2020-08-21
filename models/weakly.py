@@ -2,12 +2,15 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import time
+
+from skimage import io
 from skimage.morphology import binary_erosion, square, disk, binary_opening, thin, binary_dilation
 from torchvision.utils import save_image
 from dataset import SwinysegDataset
 from multiprocessing import Process
 import multiprocessing
 import torch.utils.data as data
+from PIL import Image
 
 
 class Node:
@@ -237,6 +240,7 @@ def thin_and_connect(orig_img, verbose=0):
         print('Thin image is all black ')
         plt.figure()
         plt.imshow(orig_img, cmap='gray')
+        plt.show()
         return thin_img, orig_img
     while sum(sum(thin_img)) > 0:
         thin_len = 1
@@ -328,12 +332,13 @@ def convert_dataset_to_weakly(dataset):
         if i % 100 == 0:
             print(f'Done {i} images in proccess {multiprocessing.current_process()} in {time.time() - p_start_time} seconds')
         gt = sample['gt']
-        patch_name = sample['patch_name']
+        patch_name = sample['patch_name'].replace('.jpg', '.png')
         final_res, full_res = thin_and_connect(gt, 0)
-        final_res = torch.from_numpy(final_res)
-        full_res = torch.from_numpy(full_res)
-        save_image(final_res, weakly_path + patch_name, 'png')
-        save_image(full_res, full_res_path + patch_name, 'png')
+        final_im = Image.fromarray(final_res * 255.0).convert('1')
+        final_im.save(weakly_path + patch_name)
+        full_im = Image.fromarray(full_res * 255.0).convert('L')
+        full_im.save(full_res_path + patch_name)
+
     print(f'{multiprocessing.current_process()} finished in {time.time() - p_start_time} seconds')
 
 
@@ -369,7 +374,7 @@ if __name__ == '__main__':
         end_node = end_node.father
     plt.imshow(res_img, cmap='gray')
     plt.show()'''
-
+    # TODO  add code that tries to find route with long length, if it does not successed it saves the name and tries later with smaller number
     dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'

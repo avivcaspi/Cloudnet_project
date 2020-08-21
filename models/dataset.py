@@ -74,7 +74,7 @@ class Cloud95Dataset(Dataset):
 class SwinysegDataset(Dataset):
     """swinyseg dataset."""
 
-    def __init__(self, csv_file, root_dir, transform=None):
+    def __init__(self, csv_file, root_dir, transform=None, weakly=False):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -91,6 +91,7 @@ class SwinysegDataset(Dataset):
         self.patches_name = patches_name
         self.root_dir = root_dir
         self.transform = transform
+        self.weakly = weakly
 
     def __len__(self):
         return len(self.patches_name)
@@ -101,10 +102,12 @@ class SwinysegDataset(Dataset):
 
         img_folder = 'images/'
         gt_folder = 'GTmaps/'
+        if self.weakly:
+            gt_folder = 'WeaklyGT/'
         img_name = os.path.join(self.root_dir,
-                                    img_folder + self.patches_name.iloc[idx, 0])
+                                img_folder + self.patches_name.iloc[idx, 0])
         gt_map_name = os.path.join(self.root_dir,
-                                   gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+                                   gt_folder + self.patches_name.iloc[idx, 0] if self.weakly else gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
         image = io.imread(img_name) / 255
         gt_img = io.imread(gt_map_name) / 255
 
@@ -196,7 +199,7 @@ def show_image_gt_batch(image, gt, pred=None):
             ax[i, 1].imshow(gt[i], cmap='gray')
             if pred is not None:
                 ax[i, 2].imshow(pred[i], cmap='gray')
-                
+
     plt.show()
 
 
@@ -223,7 +226,7 @@ def show_image_inference_batch(image, pred, gt=None):
         axes[i, 1].imshow(pred[i], cmap='gray')
         if gt is not None:
             axes[i, 2].imshow(gt[i], cmap='gray')
-    
+
     plt.setp(axes, xticks=[], yticks=[])
     plt.show()
 
@@ -239,20 +242,15 @@ if __name__ == '__main__':
     cloud95_dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/',
-        transform=ToTensor()
-        )
+        transform=ToTensor(), weakly=True
+    )
 
     x = cloud95_dataset[1]
     dataloader = DataLoader(cloud95_dataset, batch_size=3,
                             shuffle=False)
 
     for i_batch, sample_batched in enumerate(dataloader):
-
         print(i_batch, sample_batched['image'].size(),
               sample_batched['gt'].size())
         print(gt_to_onehot(sample_batched['gt']).size())
         show_image_gt_batch(sample_batched['image'], sample_batched['gt'])
-
-
-
-
