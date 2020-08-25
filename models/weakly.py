@@ -3,7 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 import time
 
-from skimage import io
+from skimage import io, transform
 from skimage.morphology import binary_erosion, square, disk, binary_opening, thin, binary_dilation
 from torchvision.utils import save_image
 from dataset import SwinysegDataset
@@ -36,6 +36,7 @@ def BeamSearch(img: np.ndarray, start: tuple, finish: tuple, h: callable):
         open_list.append(start_node)
     while len(open_list) > 0:
         next_node = open_list.pop(0)
+        img[next_node.p] = 0.8
         close_list.append(next_node)
         if next_node.p == finish:
             return next_node
@@ -64,6 +65,7 @@ def dist(p1, p2):
 def heuristic(img, p, finish):
     distance = dist(p, finish)
     black = 10
+    near_black = 0
     '''for i in range(1, 10, 2):
         if 0 <= p[0] + i < img.shape[0]:
             if img[p[0] + i, p[1]] == 0:
@@ -82,7 +84,7 @@ def heuristic(img, p, finish):
                 black = i
                 break
     near_black = 30 - black*3'''
-    near_black = 0
+
     return distance + near_black
 
 
@@ -330,7 +332,7 @@ def convert_dataset_to_weakly(dataset):
     for sample in dataset:
         i += 1
         if i % 100 == 0:
-            print(f'Done {i} images in proccess {multiprocessing.current_process()} in {time.time() - p_start_time} seconds')
+            print(f'Done {i} images in process {multiprocessing.current_process()} in {time.time() - p_start_time} seconds')
         gt = sample['gt']
         patch_name = sample['patch_name'].replace('.jpg', '.png')
         final_res, full_res = thin_and_connect(gt, 0)
@@ -342,9 +344,56 @@ def convert_dataset_to_weakly(dataset):
     print(f'{multiprocessing.current_process()} finished in {time.time() - p_start_time} seconds')
 
 
+def generate_weakly_set():
+    dataset = SwinysegDataset(
+        csv_file='../data/swinyseg/metadata.csv',
+        root_dir='../data/swinyseg/'
+    )
+    length = len(dataset)
+    num_threads = 4
+    process_len = round(length / num_threads)
+    lens = [process_len] * (num_threads - 1)
+    lens.append(length - ((num_threads - 1) * process_len))
+    subsets = data.random_split(dataset, lens)
+    threads = []
+    for subset in subsets:
+        threads.append(Process(target=convert_dataset_to_weakly, args=(subset,)))
+        threads[-1].start()
+    for thread in threads:
+        thread.join()
+
+
 if __name__ == '__main__':
     start_time = time.time()
+    dataset = SwinysegDataset(
+        csv_file='../data/swinyseg/metadata.csv',
+        root_dir='../data/swinyseg/'
+    )
+    img = dataset[1]['gt']
+    img = transform.resize(img, (256, 256))
+    img[img > 0.5 ] = 1
+    img[img <= 0.5] = 0
+    fig, axes = plt.subplots(1, 3, figsize=(15, 7))
+    axes = axes.reshape([1, 3])
+    axes[0,0].set_title('Original', fontsize=15)
+    axes[0,0].imshow(img, cmap='gray')
 
+    start = (100,25)
+    finish = (80,240)
+    n_img = erode(img , disk(10))
+    axes[0, 1].imshow(n_img, cmap='gray')
+    axes[0, 1].set_title('Erode', fontsize=15)
+    end_node = weighted_astar(n_img, start, finish, 1,1)
+    while end_node is not None and end_node.father is not None:
+        p = end_node.p
+        img[p] = 0.3
+        end_node = end_node.father
+
+    axes[0,2].imshow(img, cmap='gray')
+    axes[0, 2].set_title('Final',fontsize=15)
+
+    plt.setp(axes, xticks=[], yticks=[])
+    plt.show()
     '''dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'
@@ -375,50 +424,6 @@ if __name__ == '__main__':
     plt.imshow(res_img, cmap='gray')
     plt.show()'''
     # TODO  add code that tries to find route with long length, if it does not successed it saves the name and tries later with smaller number
-    dataset = SwinysegDataset(
-        csv_file='../data/swinyseg/metadata.csv',
-        root_dir='../data/swinyseg/'
-    )
-    length = len(dataset)
-    num_threads = 4
-    rest = dataset
-    process_len = round(length / num_threads)
-    lens = [process_len] * (num_threads - 1)
-    lens.append(length - ((num_threads - 1) * process_len))
-    subsets = data.random_split(dataset, lens)
-    threads = []
-    for subset in subsets:
-        threads.append(Process(target=convert_dataset_to_weakly, args=(subset,)))
-        threads[-1].start()
-    for thread in threads:
-        thread.join()
 
-    '''weakly_path = '../data/swinyseg/WeaklyGT/'
-    full_res_path = '../data/swinyseg/WeaklyFull/'
-    i = 0
-    res, full = [], []
-    for sample in dataset:
-        i += 1
-        if i % 100 == 0:
-            print(f'Done {i} images')
-        gt = sample['gt']
-        patch_name = sample['patch_name']
-        final_res, full_res = thin_and_connect(gt, 0)
-        final_res = torch.from_numpy(final_res)
-        full_res = torch.from_numpy(full_res)
-        save_image(final_res, weakly_path + patch_name, 'png')
-        save_image(full_res, full_res_path + patch_name, 'png')
-
-        # res.append(final_res)
-        # full.append(weakly)'''
-
-    '''fig, ax = plt.subplots(len(full), 2, figsize=(10, len(full) * 5))
-    ax[0, 0].set_title('Final gt', fontweight="bold", size=20)
-    ax[0, 1].set_title('Full image', fontweight="bold", size=20)
-    for i, (final_gt, full_gt) in enumerate(zip(res, full)):
-        ax[i, 0].imshow(final_gt, cmap='gray')
-        ax[i, 1].imshow(full_gt, cmap='gray')
-
-    plt.show()'''
 
     print(f'Finished  all images in {time.time() - start_time} seconds')
