@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
-from losses import FilteredJaccardLoss
+from losses import FilteredJaccardLoss, WeaklyLoss
 from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -14,7 +14,7 @@ from skimage import io, transform
 import cv2
 
 
-def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
+def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakly=False):
     start = time.time()
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = torch.device(dev)
@@ -59,7 +59,11 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
                     # zero the gradients
                     optimizer.zero_grad()
                     outputs = model(x)
-                    loss = loss_fn(outputs, y)
+                    
+                    args = [outputs, y]
+                    if weakly:
+                        args.append(x)
+                    loss = loss_fn(*args)
 
                     # the backward pass frees the graph memory, so there is no
                     # need for torch.no_grad in this training pass
@@ -70,7 +74,10 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1):
                 else:
                     with torch.no_grad():
                         outputs = model(x)
-                        loss = loss_fn(outputs, y.long())
+                        args = [outputs, y.long()]
+                        if weakly:
+                            args.append(x)
+                        loss = loss_fn(*args)
 
                 # stats - whatever is the phase
                 acc = acc_fn(outputs, y)
@@ -215,6 +222,44 @@ def train_network():
     plt.show()
 
 
+def train_network_weakly():
+    # Training phase
+    cloud_net = CloudNetPlus(3, 6, residual=True, softmax=True)
+    print(cloud_net)
+    num_params = sum(p.numel() for p in cloud_net.parameters())
+    print(f'# of parameters: {num_params}')
+
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
+                              root_dir='../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]),
+                              weakly=True)
+    length = len(dataset)
+    train_size = int(0.85 * length)
+    print(f'train set size is : {train_size}')
+    print(f'validation set size is : {length - train_size}')
+
+    train_ds, valid_ds = torch.utils.data.random_split(dataset, (train_size, length - train_size))
+    train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
+    valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
+    
+    loss_fn = WeaklyLoss()
+    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
+
+    train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, acc_metric,
+                                                         epochs=50, weakly=True)
+    plt.figure(figsize=(10, 8))
+    plt.plot(train_loss, label='Train loss')
+    plt.plot(valid_loss, label='Valid loss')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=(10, 8))
+    plt.plot(train_acc, label='Train accuracy')
+    plt.plot(valid_acc, label='Valid accuracy')
+    plt.legend()
+    plt.show()
+
+
 def get_dtype():
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = torch.device(dev)
@@ -282,15 +327,9 @@ def from_video():
 
 
 if __name__ == "__main__":
-    show_inference(num_imgs=4, gt=True, print_patches=True)
-    '''dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
-                             root_dir='../data/95-cloud_train/',
-                             transform=transforms.Compose([Rescale(192), ToTensor()]),
-                             use_nir=False)
-    dl = DataLoader(dataset, 4, num_workers=4, shuffle=True)
-    batch = next(iter(dl))['image']
-
-    model = CloudNetPlus(3, 6, residual=True, softmax=True)
+    #show_inference(num_imgs=4, gt=True, print_patches=True)
+    train_network_weakly()
+    '''model = CloudNetPlus(3, 6, residual=True, softmax=True)
     saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
     model.load_state_dict(saved_state['model_state'])
     model.type(torch.cuda.FloatTensor)

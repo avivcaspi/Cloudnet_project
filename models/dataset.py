@@ -107,7 +107,7 @@ class SwinysegDataset(Dataset):
         img_name = os.path.join(self.root_dir,
                                 img_folder + self.patches_name.iloc[idx, 0])
         gt_map_name = os.path.join(self.root_dir,
-                                   gt_folder + self.patches_name.iloc[idx, 0] if self.weakly else gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+                                   gt_folder + (self.patches_name.iloc[idx, 0] if not self.weakly else self.patches_name.iloc[idx, 0].replace('jpg', 'png')))
         image = io.imread(img_name) / 255
         gt_img = io.imread(gt_map_name) / 255
 
@@ -177,7 +177,7 @@ def show_image_gt_batch(image, gt, pred=None):
     batch_size = image.shape[0]
     if isinstance(image, torch.Tensor):
         image = image.numpy().transpose((0, 2, 3, 1))
-    if len(pred.shape) == 4:
+    if pred is not None and len(pred.shape) == 4:
         pred = pred[:, 1, :, :]
 
     fig, ax = plt.subplots(batch_size, 3, figsize=(20, batch_size * 5))

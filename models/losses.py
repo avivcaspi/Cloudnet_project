@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from DenseCRFLoss import DenseCRFLoss, denormalizeimage
+
 
 class FilteredJaccardLoss(nn.Module):
 
@@ -25,3 +27,22 @@ class FilteredJaccardLoss(nn.Module):
             loss = 1. - (i / (u - i + epsilon))
 
         return loss
+
+
+class WeaklyLoss(nn.Module):
+
+    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor):
+        # the loss is jaccard + regularization
+        jaccard_loss = FilteredJaccardLoss()
+        dense_crf_loss = DenseCRFLoss(weight=0, sigma_rgb=15.0, sigma_xy=80.0, scale_factor=1.0)
+
+        denormalized_image = denormalizeimage(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        probs = y_pred
+        croppings = (y_true != 254).float()
+
+        loss = jaccard_loss(y_pred, y_true)
+        regularization = dense_crf_loss(denormalized_image, probs, croppings)
+        if isinstance(y_pred, torch.cuda.FloatTensor):
+            regularization = regularization.cuda()
+
+        return loss + regularization

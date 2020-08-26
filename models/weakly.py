@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import time
+import os
 
 from skimage import io, transform
 from skimage.morphology import binary_erosion, square, disk, binary_opening, thin, binary_dilation
@@ -349,23 +350,32 @@ def generate_weakly_set():
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'
     )
+
+    if not os.path.isdir('../data/swinyseg/WeaklyGT/'):
+        os.mkdir('../data/swinyseg/WeaklyGT/')
+    if not os.path.isdir('../data/swinyseg/WeaklyFull/'):
+        os.mkdir('../data/swinyseg/WeaklyFull/')
+
     length = len(dataset)
     num_threads = 4
     process_len = round(length / num_threads)
+
     lens = [process_len] * (num_threads - 1)
     lens.append(length - ((num_threads - 1) * process_len))
     subsets = data.random_split(dataset, lens)
+    
     threads = []
     for subset in subsets:
         threads.append(Process(target=convert_dataset_to_weakly, args=(subset,)))
         threads[-1].start()
+
     for thread in threads:
         thread.join()
 
 
 if __name__ == '__main__':
     start_time = time.time()
-    dataset = SwinysegDataset(
+    '''dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'
     )
@@ -393,7 +403,7 @@ if __name__ == '__main__':
     axes[0, 2].set_title('Final',fontsize=15)
 
     plt.setp(axes, xticks=[], yticks=[])
-    plt.show()
+    plt.show()'''
     '''dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'
@@ -425,5 +435,5 @@ if __name__ == '__main__':
     plt.show()'''
     # TODO  add code that tries to find route with long length, if it does not successed it saves the name and tries later with smaller number
 
-
+    generate_weakly_set()
     print(f'Finished  all images in {time.time() - start_time} seconds')
