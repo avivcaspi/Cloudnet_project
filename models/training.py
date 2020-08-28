@@ -29,7 +29,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
     train_acc, valid_acc = [], []
 
     best_acc = 0.0
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=3, verbose=True, min_lr=1e-8)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=20, verbose=True, min_lr=1e-8)
 
     for epoch in range(epochs):
         print('Epoch {}/{}'.format(epoch, epochs - 1))
@@ -59,7 +59,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
                     # zero the gradients
                     optimizer.zero_grad()
                     outputs = model(x)
-                    
+
                     args = [outputs, y]
                     if weakly:
                         args.append(x)
@@ -83,18 +83,21 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
                 acc = acc_fn(outputs, y)
 
                 running_acc += acc * dataloader.batch_size
-                running_loss += loss * dataloader.batch_size
+                running_loss += loss.item() * dataloader.batch_size
 
-                if epoch % 10 == 0 and flag:
+                if epoch % 20 == 0 and flag:
                     with torch.no_grad():
                         outputs = model(x)
+                        # TODO need to add softmax to output in weakly case
                         show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
                         flag = False
 
                 if step % 100 == 0:
+                    # TODO add accuracy to the real gt
                     # clear_output(wait=True)
-                    print('Current step: {}  Loss: {}  Acc: {}  AllocMem (Mb): {}'.format(step, loss, acc,
-                                                                                          torch.cuda.memory_allocated() / 1024 / 1024))
+                    print('Current step: {}  Loss: {}  Acc: {}  AllocMem (Mb): {}'.format(step, loss.item(), acc,
+                                                                                          torch.cuda.memory_allocated()
+                                                                                          / 1024 / 1024))
 
                     # print(torch.cuda.memory_summary())
 
@@ -119,7 +122,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
     torch.save(saved_state, 'saved_state')
     print(f'*** Saved checkpoint ***')
     print(f'Finding best threshold:')
-    find_best_threshold(model, valid_dl)
+    # find_best_threshold(model, valid_dl)
     return train_loss, valid_loss, train_acc, valid_acc
 
 
@@ -132,6 +135,13 @@ def acc_metric(pred, y, threshold=0.5):
         mask[pred >= threshold] = 1
         mask[pred < threshold] = 0
     return (mask == y.type(dtype)).float().mean()
+
+
+def weakly_acc(pred, y):
+    dtype = pred.dtype
+    mask = torch.argmax(pred, 1)
+    relevant = y != 255
+    return ((mask == y.type(dtype)) * relevant).float().mean()
 
 
 def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
@@ -203,9 +213,9 @@ def train_network():
     train_ds, valid_ds = torch.utils.data.random_split(dataset, (train_size, length - train_size))
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
-    
+
     loss_fn = FilteredJaccardLoss()
-    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
+    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-2)
 
     train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, acc_metric,
                                                          epochs=50)
@@ -224,7 +234,7 @@ def train_network():
 
 def train_network_weakly():
     # Training phase
-    cloud_net = CloudNetPlus(3, 6, residual=True, softmax=True)
+    cloud_net = CloudNetPlus(3, 6, residual=True, softmax=False, sigmoid=False)
     print(cloud_net)
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
@@ -241,12 +251,12 @@ def train_network_weakly():
     train_ds, valid_ds = torch.utils.data.random_split(dataset, (train_size, length - train_size))
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
-    
-    loss_fn = WeaklyLoss()
+
+    loss_fn = WeaklyLoss(dense_crf_weight=2e-9, ignore_index=255)
     opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
-    train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, acc_metric,
-                                                         epochs=50, weakly=True)
+    train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, weakly_acc,
+                                                         epochs=200, weakly=True)
     plt.figure(figsize=(10, 8))
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
@@ -276,12 +286,12 @@ def show_inference(num_imgs=4, gt=False, print_patches=False):
 
     model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
     saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
-    
+
     dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(256), ToTensor()]))
     dl = DataLoader(dataset, batch_size=num_imgs, shuffle=True, num_workers=4)
-    
+
     batch = next(iter(dl))
     imgs = batch['image'].type(dtype)
     gt_images = None
@@ -290,7 +300,7 @@ def show_inference(num_imgs=4, gt=False, print_patches=False):
 
     if print_patches:
         print(batch['patch_name'])
-    
+
     inference(model, imgs, saved_state=saved_state, gt=gt_images)
 
 
@@ -303,7 +313,7 @@ def from_video():
 
     cap = cv2.VideoCapture(0)
 
-    while (True):
+    while True:
         # Capture frame-by-frame
         ret, frame = cap.read()
 
@@ -327,7 +337,7 @@ def from_video():
 
 
 if __name__ == "__main__":
-    #show_inference(num_imgs=4, gt=True, print_patches=True)
+    # show_inference(num_imgs=4, gt=True, print_patches=True)
     train_network_weakly()
     '''model = CloudNetPlus(3, 6, residual=True, softmax=True)
     saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
@@ -340,5 +350,3 @@ if __name__ == "__main__":
         output = model(x)
 
     show_image_inference_batch(batch, output.cpu())'''
-
-

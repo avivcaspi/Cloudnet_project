@@ -1,3 +1,4 @@
+import cv2
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
@@ -102,16 +103,24 @@ class SwinysegDataset(Dataset):
 
         img_folder = 'images/'
         gt_folder = 'GTmaps/'
+        full_folder = 'WeaklyFull/'
         if self.weakly:
             gt_folder = 'WeaklyGT/'
         img_name = os.path.join(self.root_dir,
                                 img_folder + self.patches_name.iloc[idx, 0])
         gt_map_name = os.path.join(self.root_dir,
-                                   gt_folder + (self.patches_name.iloc[idx, 0] if not self.weakly else self.patches_name.iloc[idx, 0].replace('jpg', 'png')))
+                                   gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+        weakly_full = None
+        if self.weakly:
+            full_map_name = os.path.join(self.root_dir,
+                                         full_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+            weakly_full = io.imread(full_map_name)
         image = io.imread(img_name) / 255
-        gt_img = io.imread(gt_map_name) / 255
+        gt_img = io.imread(gt_map_name)
+        if not self.weakly:
+            gt_img /= 255
 
-        sample = {'image': image, 'gt': gt_img, 'patch_name': self.patches_name.iloc[idx, 0]}
+        sample = {'image': image, 'gt': gt_img, 'full_weakly': weakly_full, 'patch_name': self.patches_name.iloc[idx, 0]}
 
         if self.transform:
             sample = self.transform(sample)
@@ -149,7 +158,7 @@ class Rescale(object):
         img = transform.resize(image, (new_h, new_w))
 
         if gt is not None:
-            gt = transform.resize(gt, (new_h, new_w))
+            gt = cv2.resize(gt, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST)
 
         sample['image'] = img
         sample['gt'] = gt

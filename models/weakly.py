@@ -240,10 +240,6 @@ def thin_and_connect(orig_img, verbose=0):
     thin_img = thin(img).astype(float)
     w, h = img.shape
     if sum(sum(thin_img)) == 0:
-        print('Thin image is all black ')
-        plt.figure()
-        plt.imshow(orig_img, cmap='gray')
-        plt.show()
         return thin_img, orig_img
     while sum(sum(thin_img)) > 0:
         thin_len = 1
@@ -335,11 +331,19 @@ def convert_dataset_to_weakly(dataset):
         if i % 100 == 0:
             print(f'Done {i} images in process {multiprocessing.current_process()} in {time.time() - p_start_time} seconds')
         gt = sample['gt']
+        inverted_gt = 1 - gt
         patch_name = sample['patch_name'].replace('.jpg', '.png')
         final_res, full_res = thin_and_connect(gt, 0)
-        final_im = Image.fromarray(final_res * 255.0).convert('1')
+        inverted_final_res, inverted_full_res = thin_and_connect(inverted_gt, 0)
+
+        final_gt = np.ones_like(final_res) * 255.0
+        final_gt[final_res == 1] = 1.0
+        final_gt[inverted_final_res == 1] = 0.0
+        final_full = full_res + inverted_final_res * 0.8
+
+        final_im = Image.fromarray(final_gt).convert('L')
         final_im.save(weakly_path + patch_name)
-        full_im = Image.fromarray(full_res * 255.0).convert('L')
+        full_im = Image.fromarray(final_full * 255.0).convert('L')
         full_im.save(full_res_path + patch_name)
 
     print(f'{multiprocessing.current_process()} finished in {time.time() - p_start_time} seconds')
@@ -363,7 +367,7 @@ def generate_weakly_set():
     lens = [process_len] * (num_threads - 1)
     lens.append(length - ((num_threads - 1) * process_len))
     subsets = data.random_split(dataset, lens)
-    
+
     threads = []
     for subset in subsets:
         threads.append(Process(target=convert_dataset_to_weakly, args=(subset,)))
@@ -375,6 +379,7 @@ def generate_weakly_set():
 
 if __name__ == '__main__':
     start_time = time.time()
+
     '''dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
         root_dir='../data/swinyseg/'

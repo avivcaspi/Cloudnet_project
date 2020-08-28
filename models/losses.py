@@ -30,18 +30,37 @@ class FilteredJaccardLoss(nn.Module):
 
 
 class WeaklyLoss(nn.Module):
+    def __init__(self, dense_crf_weight, ignore_index=255):
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.ce_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
+        self.jaccard_loss = FilteredJaccardLoss()
+        self.dense_crf_loss = DenseCRFLoss(weight=dense_crf_weight, sigma_rgb=15.0, sigma_xy=80.0, scale_factor=1.0)
+        self.softmax = nn.Softmax(dim=1)
+        self.batch_average = True
+
+    def CrossEntropyLoss(self, logit, target):
+        n, c, h, w = logit.size()
+
+        if isinstance(target, torch.cuda.FloatTensor):
+            self.ce_loss = self.ce_loss.cuda()
+
+        loss = self.ce_loss(logit, target.long())
+
+        if self.batch_average:
+            loss /= n
+
+        return loss
 
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor):
-        # the loss is jaccard + regularization
-        jaccard_loss = FilteredJaccardLoss()
-        dense_crf_loss = DenseCRFLoss(weight=0, sigma_rgb=15.0, sigma_xy=80.0, scale_factor=1.0)
+        # the loss is celoss + regularization
+        loss = self.CrossEntropyLoss(y_pred, y_true)
 
         denormalized_image = denormalizeimage(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        probs = y_pred
+        probs = self.softmax(y_pred)
         croppings = (y_true != 254).float()
 
-        loss = jaccard_loss(y_pred, y_true)
-        regularization = dense_crf_loss(denormalized_image, probs, croppings)
+        regularization = self.dense_crf_loss(denormalized_image, probs, croppings)
         if isinstance(y_pred, torch.cuda.FloatTensor):
             regularization = regularization.cuda()
 
