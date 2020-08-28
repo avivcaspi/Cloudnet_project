@@ -88,7 +88,9 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
                 if epoch % 20 == 0 and flag:
                     with torch.no_grad():
                         outputs = model(x)
-                        # TODO need to add softmax to output in weakly case
+                        if weakly:
+                            softmax = nn.Softmax(dim=1)
+                            outputs = softmax(outputs)
                         show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
                         flag = False
 
