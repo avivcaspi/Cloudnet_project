@@ -29,7 +29,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
     train_acc, valid_acc = [], []
 
     best_acc = 0.0
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=20, verbose=True, min_lr=1e-8)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=3, verbose=True, min_lr=1e-8)
 
     for epoch in range(epochs):
         print('Epoch {}/{}'.format(epoch, epochs - 1))
@@ -85,12 +85,13 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
                 running_acc += acc * dataloader.batch_size
                 running_loss += loss.item() * dataloader.batch_size
 
-                if epoch % 20 == 0 and flag:
+                if epoch % 10 == 0 and flag:
                     with torch.no_grad():
                         outputs = model(x)
                         if weakly:
                             softmax = nn.Softmax(dim=1)
                             outputs = softmax(outputs)
+                        # TODO show weakly gt in different colors, and add full gt for reference
                         show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
                         flag = False
 
@@ -142,8 +143,8 @@ def acc_metric(pred, y, threshold=0.5):
 def weakly_acc(pred, y):
     dtype = pred.dtype
     mask = torch.argmax(pred, 1)
-    relevant = y != 255
-    return ((mask == y.type(dtype)) * relevant).float().mean()
+    relevant = (y != 255).float()
+    return ((mask == y.type(dtype)) * relevant).float().sum() / relevant.sum()
 
 
 def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
@@ -217,7 +218,7 @@ def train_network():
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
 
     loss_fn = FilteredJaccardLoss()
-    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-2)
+    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
     train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, acc_metric,
                                                          epochs=50)
@@ -254,11 +255,11 @@ def train_network_weakly():
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
 
-    loss_fn = WeaklyLoss(dense_crf_weight=2e-9, ignore_index=255)
-    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
+    loss_fn = WeaklyLoss(dense_crf_weight=1e-9, ignore_index=255)
+    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-4)
 
     train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, weakly_acc,
-                                                         epochs=200, weakly=True)
+                                                         epochs=80, weakly=True)
     plt.figure(figsize=(10, 8))
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
