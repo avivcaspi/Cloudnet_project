@@ -2,12 +2,13 @@ import cv2
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
-from skimage import io, transform
+from skimage import io, transform, color
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 import os
+from sklearn.model_selection import train_test_split
 
 
 class Cloud95Dataset(Dataset):
@@ -75,7 +76,7 @@ class Cloud95Dataset(Dataset):
 class SwinysegDataset(Dataset):
     """swinyseg dataset."""
 
-    def __init__(self, csv_file, root_dir, transform=None, weakly=False):
+    def __init__(self, csv_file, root_dir, transform=None, weakly=False, train=True):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -83,6 +84,7 @@ class SwinysegDataset(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
+        self.train = train
         original_patches_name = pd.read_csv(csv_file)
         patches_name = original_patches_name.copy()
         for i in range(1, 6):
@@ -104,23 +106,32 @@ class SwinysegDataset(Dataset):
         img_folder = 'images/'
         gt_folder = 'GTmaps/'
         full_folder = 'WeaklyFull/'
+        gt_orig_folder = None
         if self.weakly:
+            gt_orig_folder = gt_folder
             gt_folder = 'WeaklyGT/'
+
         img_name = os.path.join(self.root_dir,
                                 img_folder + self.patches_name.iloc[idx, 0])
         gt_map_name = os.path.join(self.root_dir,
                                    gt_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
         weakly_full = None
+        orig_gt = None
         if self.weakly:
             full_map_name = os.path.join(self.root_dir,
                                          full_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
             weakly_full = io.imread(full_map_name)
+            orig_gt_name = os.path.join(self.root_dir,
+                                        gt_orig_folder + self.patches_name.iloc[idx, 0].replace('jpg', 'png'))
+            orig_gt = io.imread(orig_gt_name) / 255
+
         image = io.imread(img_name) / 255
         gt_img = io.imread(gt_map_name)
         if not self.weakly:
-            gt_img /= 255
+            gt_img = gt_img / 255
 
-        sample = {'image': image, 'gt': gt_img, 'full_weakly': weakly_full, 'patch_name': self.patches_name.iloc[idx, 0]}
+        sample = {'image': image, 'gt': gt_img, 'full_weakly': weakly_full, 'orig_gt': orig_gt,
+                  'patch_name': self.patches_name.iloc[idx, 0]}
 
         if self.transform:
             sample = self.transform(sample)
@@ -142,7 +153,7 @@ class Rescale(object):
         self.output_size = output_size
 
     def __call__(self, sample):
-        image, gt = sample['image'], sample['gt']
+        image, gt, orig_gt, full_weakly = sample['image'], sample['gt'], sample['orig_gt'], sample['full_weakly']
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
@@ -160,8 +171,13 @@ class Rescale(object):
         if gt is not None:
             gt = cv2.resize(gt, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST)
 
+        orig_gt = cv2.resize(orig_gt, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST) if orig_gt is not None else None
+        full_weakly = cv2.resize(full_weakly, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST) if full_weakly is not None else None
+
         sample['image'] = img
         sample['gt'] = gt
+        sample['orig_gt'] = orig_gt
+        sample['full_weakly'] = full_weakly
         return sample
 
 
@@ -169,15 +185,16 @@ class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
 
     def __call__(self, sample):
-        image, gt = sample['image'], sample['gt']
+        image, gt, orig_gt, full_weakly = sample['image'], sample['gt'], sample['orig_gt'], sample['full_weakly']
 
         # swap color axis because
         # numpy image: H x W x C
         # torch image: C X H X W
         image = image.transpose((2, 0, 1))
         sample['image'] = torch.from_numpy(image)
-        sample['gt'] = torch.from_numpy(gt) if gt is not None else None
-
+        sample['gt'] = torch.from_numpy(gt) if gt is not None else torch.Tensor()
+        sample['orig_gt'] = torch.from_numpy(orig_gt) if orig_gt is not None else torch.Tensor()
+        sample['full_weakly'] = torch.from_numpy(full_weakly) if full_weakly is not None else torch.Tensor()
         return sample
 
 
@@ -208,6 +225,41 @@ def show_image_gt_batch(image, gt, pred=None):
             ax[i, 1].imshow(gt[i], cmap='gray')
             if pred is not None:
                 ax[i, 2].imshow(pred[i], cmap='gray')
+
+    plt.show()
+
+
+def show_image_gt_batch_weakly(image, gt, orig_gt, pred):
+    """Show image with gt"""
+    batch_size = image.shape[0]
+    if isinstance(image, torch.Tensor):
+        image = image.numpy().transpose((0, 2, 3, 1))
+    if pred is not None and len(pred.shape) == 4:
+        pred = pred[:, 1, :, :]
+    gt_color = color.gray2rgb(gt)
+    gt_color[:,:,:, 0][gt == 0] = 255
+    gt_color[:,:,:, 1][gt == 1] = 255
+    gt = gt_color / 255
+    fig, ax = plt.subplots(batch_size, 4, figsize=(25, batch_size * 5))
+    if batch_size == 1:
+        ax[0].imshow(image[0, :, :, :3])
+        ax[0].set_title('Image')
+        ax[1].imshow(gt[0])
+        ax[1].set_title('gt')
+        ax[2].imshow(orig_gt[0], cmap='gray')
+        ax[2].set_title('orig gt')
+        ax[3].imshow(pred[0], cmap='gray')
+        ax[3].set_title('Pred')
+    else:
+        ax[0, 0].set_title('Image')
+        ax[0, 1].set_title('gt')
+        ax[0, 2].set_title('orig gt')
+        ax[0, 3].set_title('Pred')
+        for i in range(batch_size):
+            ax[i, 0].imshow(image[i, :, :, :3])
+            ax[i, 1].imshow(gt[i])
+            ax[i, 2].imshow(orig_gt[i], cmap='gray')
+            ax[i, 3].imshow(pred[i], cmap='gray')
 
     plt.show()
 
@@ -248,18 +300,8 @@ def gt_to_onehot(gt_image):
 
 
 if __name__ == '__main__':
-    cloud95_dataset = SwinysegDataset(
-        csv_file='../data/swinyseg/metadata.csv',
-        root_dir='../data/swinyseg/',
-        transform=ToTensor(), weakly=True
-    )
+    dataset = SwinysegDataset('../data/swinyseg/metadata_train.csv', '../data/swinyseg/', weakly=True,
+                              transform=transforms.Compose([Rescale(256), ToTensor()]), train=True)
+    x = dataset[0]
 
-    x = cloud95_dataset[1]
-    dataloader = DataLoader(cloud95_dataset, batch_size=3,
-                            shuffle=False)
 
-    for i_batch, sample_batched in enumerate(dataloader):
-        print(i_batch, sample_batched['image'].size(),
-              sample_batched['gt'].size())
-        print(gt_to_onehot(sample_batched['gt']).size())
-        show_image_gt_batch(sample_batched['image'], sample_batched['gt'])

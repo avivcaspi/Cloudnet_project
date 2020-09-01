@@ -5,7 +5,8 @@ import numpy as np
 import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
 from losses import FilteredJaccardLoss, WeaklyLoss
-from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch
+from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch, \
+    show_image_gt_batch_weakly
 from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -27,12 +28,14 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
 
     train_loss, valid_loss = [], []
     train_acc, valid_acc = [], []
+    train_orig_acc, valid_orig_acc = [], []
 
     best_acc = 0.0
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=3, verbose=True, min_lr=1e-8)
 
-    for epoch in range(epochs):
-        print('Epoch {}/{}'.format(epoch, epochs - 1))
+    softmax = nn.Softmax(dim=1) if weakly else None
+    for epoch in range(1, epochs + 1):
+        print('Epoch {}/{}'.format(epoch, epochs))
         print('-' * 10)
         flag = True
         for phase in ['train', 'valid']:
@@ -45,6 +48,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
 
             running_loss = 0.0
             running_acc = 0.0
+            running_orig_acc = 0.0
 
             step = 0
 
@@ -52,6 +56,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
             for sample_batched in dataloader:
                 x = sample_batched['image'].type(dtype)
                 y = sample_batched['gt'].type(dtype)
+                y_orig = sample_batched['orig_gt'].type(dtype) if weakly else None
                 step += 1
 
                 # forward pass
@@ -81,6 +86,10 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
 
                 # stats - whatever is the phase
                 acc = acc_fn(outputs, y)
+                orig_acc = 0.0
+                if weakly:
+                    orig_acc = acc_metric(softmax(outputs), y_orig)
+                    running_orig_acc += orig_acc * dataloader.batch_size
 
                 running_acc += acc * dataloader.batch_size
                 running_loss += loss.item() * dataloader.batch_size
@@ -89,32 +98,34 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
                     with torch.no_grad():
                         outputs = model(x)
                         if weakly:
-                            softmax = nn.Softmax(dim=1)
                             outputs = softmax(outputs)
-                        # TODO show weakly gt in different colors, and add full gt for reference
-                        show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
+                            show_image_gt_batch_weakly(x.cpu(), y.cpu(), y_orig.cpu(), outputs.cpu())
+                        else:
+                            show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
                         flag = False
 
                 if step % 100 == 0:
-                    # TODO add accuracy to the real gt
                     # clear_output(wait=True)
-                    print('Current step: {}  Loss: {}  Acc: {}  AllocMem (Mb): {}'.format(step, loss.item(), acc,
-                                                                                          torch.cuda.memory_allocated()
-                                                                                          / 1024 / 1024))
+                    print('Current step: {}  Loss: {}  Acc: {} Orig acc: {} AllocMem (Mb): {}'.format(step, loss.item(),
+                                                                                                      acc, orig_acc,
+                                                                                                      torch.cuda.memory_allocated()
+                                                                                                      / 1024 / 1024))
 
                     # print(torch.cuda.memory_summary())
 
             epoch_loss = running_loss / len(dataloader.dataset)
             epoch_acc = running_acc / len(dataloader.dataset)
+            epoch_orig_acc = running_orig_acc / len(dataloader.dataset)
 
             clear_output(wait=True)
-            print('Epoch {}/{}'.format(epoch, epochs - 1))
+            print('Epoch {}/{}'.format(epoch, epochs))
             print('-' * 10)
-            print('{} Loss: {:.4f} Acc: {}'.format(phase, epoch_loss, epoch_acc))
+            print('{} Loss: {:.4f} Acc: {}, Orig acc: {}'.format(phase, epoch_loss, epoch_acc, epoch_orig_acc))
             print('-' * 10)
 
             train_loss.append(epoch_loss) if phase == 'train' else valid_loss.append(epoch_loss)
             train_acc.append(epoch_acc) if phase == 'train' else valid_acc.append(epoch_acc)
+            train_orig_acc.append(epoch_orig_acc) if phase == 'train' else valid_orig_acc.append(epoch_orig_acc)
 
             if phase == 'valid':
                 lr_scheduler.step(epoch_loss)
@@ -126,7 +137,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
     print(f'*** Saved checkpoint ***')
     print(f'Finding best threshold:')
     # find_best_threshold(model, valid_dl)
-    return train_loss, valid_loss, train_acc, valid_acc
+    return model, train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc
 
 
 def acc_metric(pred, y, threshold=0.5):
@@ -147,14 +158,14 @@ def weakly_acc(pred, y):
     return ((mask == y.type(dtype)) * relevant).float().sum() / relevant.sum()
 
 
-def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
+def test_acc(model: torch.nn.Module, test_dl: DataLoader, threshold=0.5):
     is_cuda = next(model.parameters()).is_cuda
     dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
 
     model.train(False)
     running_acc = 0.0
 
-    for sample_batched in valid_dl:
+    for sample_batched in test_dl:
         x = sample_batched['image'].type(dtype)
         y = sample_batched['gt'].type(dtype)
 
@@ -162,9 +173,9 @@ def validation_acc(model: torch.nn.Module, valid_dl: DataLoader, threshold=0.5):
             outputs = model(x)
         acc = acc_metric(outputs, y, threshold)
 
-        running_acc += acc * valid_dl.batch_size
+        running_acc += acc * test_dl.batch_size
 
-    total_acc = running_acc / len(valid_dl.dataset)
+    total_acc = running_acc / len(test_dl.dataset)
     return total_acc
 
 
@@ -173,7 +184,7 @@ def find_best_threshold(model: torch.nn.Module, valid_dl: DataLoader):
     best_acc = 0.0
     best_t = 0.0
     for t in thresholds:
-        acc = validation_acc(model, valid_dl, t)
+        acc = test_acc(model, valid_dl, t)
         if best_acc < acc:
             best_acc = acc
             best_t = t
@@ -204,10 +215,10 @@ def train_network():
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
 
-    dataset = Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
-                             root_dir='../data/95-cloud_train/',
-                             transform=transforms.Compose([Rescale(192), ToTensor()]),
-                             use_nir=False)
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_train.csv',
+                              root_dir='../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]),
+                              weakly=False, train=True)
     length = len(dataset)
     train_size = int(0.85 * length)
     print(f'train set size is : {train_size}')
@@ -220,8 +231,17 @@ def train_network():
     loss_fn = FilteredJaccardLoss()
     opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
-    train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, acc_metric,
-                                                         epochs=50)
+    model, train_loss, valid_loss, train_acc, valid_acc, _, _ = train(cloud_net, train_dl, valid_dl, loss_fn, opt,
+                                                                      acc_metric,
+                                                                      epochs=50)
+    test_ds = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
+                              root_dir='../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]),
+                              weakly=False, train=False)
+    test_dl = DataLoader(test_ds, batch_size=16, shuffle=False, num_workers=4)
+    test_accuracy = test_acc(model, test_dl)
+    print(f'Test accuracy = {test_accuracy}')
+
     plt.figure(figsize=(10, 8))
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
@@ -242,10 +262,10 @@ def train_network_weakly():
     num_params = sum(p.numel() for p in cloud_net.parameters())
     print(f'# of parameters: {num_params}')
 
-    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_train.csv',
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(192), ToTensor()]),
-                              weakly=True)
+                              weakly=True, train=True)
     length = len(dataset)
     train_size = int(0.85 * length)
     print(f'train set size is : {train_size}')
@@ -255,11 +275,22 @@ def train_network_weakly():
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
 
-    loss_fn = WeaklyLoss(dense_crf_weight=1e-9, ignore_index=255)
-    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-4)
+    loss_fn = WeaklyLoss(dense_crf_weight=0, ignore_index=255)
+    opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
-    train_loss, valid_loss, train_acc, valid_acc = train(cloud_net, train_dl, valid_dl, loss_fn, opt, weakly_acc,
-                                                         epochs=80, weakly=True)
+    model, train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = train(cloud_net, train_dl,
+                                                                                                valid_dl, loss_fn, opt,
+                                                                                                weakly_acc,
+                                                                                                epochs=50, weakly=True)
+
+    test_ds = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
+                              root_dir='../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]),
+                              weakly=False, train=False)
+    test_dl = DataLoader(test_ds, batch_size=16, shuffle=False, num_workers=4)
+    test_accuracy = test_acc(model, test_dl)
+    print(f'Test accuracy = {test_accuracy}')
+
     plt.figure(figsize=(10, 8))
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
@@ -269,6 +300,12 @@ def train_network_weakly():
     plt.figure(figsize=(10, 8))
     plt.plot(train_acc, label='Train accuracy')
     plt.plot(valid_acc, label='Valid accuracy')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=(10, 8))
+    plt.plot(train_orig_acc, label='Train orig accuracy')
+    plt.plot(valid_orig_acc, label='Valid orig accuracy')
     plt.legend()
     plt.show()
 
