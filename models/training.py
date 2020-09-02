@@ -135,7 +135,7 @@ def train(model, train_dl, valid_dl, loss_fn, optimizer, acc_fn, epochs=1, weakl
     saved_state = dict(model_state=model.state_dict())
     torch.save(saved_state, 'saved_state')
     print(f'*** Saved checkpoint ***')
-    print(f'Finding best threshold:')
+    # print(f'Finding best threshold:')
     # find_best_threshold(model, valid_dl)
     return model, train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc
 
@@ -275,7 +275,8 @@ def train_network_weakly():
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
 
-    loss_fn = WeaklyLoss(dense_crf_weight=0, ignore_index=255)
+    dense_loss_weight = 5e-10
+    loss_fn = WeaklyLoss(dense_crf_weight=dense_loss_weight, ignore_index=255)
     opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
     model, train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = train(cloud_net, train_dl,
@@ -295,18 +296,21 @@ def train_network_weakly():
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
     plt.legend()
+    plt.savefig(f'../plots/weakly losses with denseloss {dense_loss_weight}.png')
     plt.show()
 
     plt.figure(figsize=(10, 8))
     plt.plot(train_acc, label='Train accuracy')
     plt.plot(valid_acc, label='Valid accuracy')
     plt.legend()
+    plt.savefig(f'../plots/weakly accuracy with denseloss {dense_loss_weight}.png')
     plt.show()
 
     plt.figure(figsize=(10, 8))
     plt.plot(train_orig_acc, label='Train orig accuracy')
     plt.plot(valid_orig_acc, label='Valid orig accuracy')
     plt.legend()
+    plt.savefig(f'../plots/weakly orig accuracy with denseloss {dense_loss_weight}.png')
     plt.show()
 
 
