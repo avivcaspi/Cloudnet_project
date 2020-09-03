@@ -158,9 +158,10 @@ def weakly_acc(pred, y):
     return ((mask == y.type(dtype)) * relevant).float().sum() / relevant.sum()
 
 
-def test_acc(model: torch.nn.Module, test_dl: DataLoader, threshold=0.5):
+def test_acc(model: torch.nn.Module, test_dl: DataLoader, threshold=0.5, use_softmax=False):
     is_cuda = next(model.parameters()).is_cuda
     dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
+    softmax = nn.Softmax(dim=1)
 
     model.train(False)
     running_acc = 0.0
@@ -171,6 +172,8 @@ def test_acc(model: torch.nn.Module, test_dl: DataLoader, threshold=0.5):
 
         with torch.no_grad():
             outputs = model(x)
+            if use_softmax:
+                outputs = softmax(outputs)
         acc = acc_metric(outputs, y, threshold)
 
         running_acc += acc * test_dl.batch_size
@@ -238,7 +241,7 @@ def train_network():
                               root_dir='../data/swinyseg/',
                               transform=transforms.Compose([Rescale(192), ToTensor()]),
                               weakly=False, train=False)
-    test_dl = DataLoader(test_ds, batch_size=16, shuffle=False, num_workers=4)
+    test_dl = DataLoader(test_ds, batch_size=1, shuffle=False, num_workers=1)
     test_accuracy = test_acc(model, test_dl)
     print(f'Test accuracy = {test_accuracy}')
 
@@ -246,12 +249,14 @@ def train_network():
     plt.plot(train_loss, label='Train loss')
     plt.plot(valid_loss, label='Valid loss')
     plt.legend()
+    plt.savefig(f'../plots/swinyseg losses 50 epochs.png')
     plt.show()
 
     plt.figure(figsize=(10, 8))
     plt.plot(train_acc, label='Train accuracy')
     plt.plot(valid_acc, label='Valid accuracy')
     plt.legend()
+    plt.savefig(f'../plots/swinyseg accuracy 50 epochs.png')
     plt.show()
 
 
@@ -275,7 +280,7 @@ def train_network_weakly():
     train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=4)
     valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=True, num_workers=2)
 
-    dense_loss_weight = 5e-10
+    dense_loss_weight = 3e-10
     loss_fn = WeaklyLoss(dense_crf_weight=dense_loss_weight, ignore_index=255)
     opt = torch.optim.Adam(cloud_net.parameters(), lr=1e-3)
 
@@ -284,13 +289,7 @@ def train_network_weakly():
                                                                                                 weakly_acc,
                                                                                                 epochs=50, weakly=True)
 
-    test_ds = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
-                              root_dir='../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(192), ToTensor()]),
-                              weakly=False, train=False)
-    test_dl = DataLoader(test_ds, batch_size=16, shuffle=False, num_workers=4)
-    test_accuracy = test_acc(model, test_dl)
-    print(f'Test accuracy = {test_accuracy}')
+    get_model_accuracy_swinyseg(model)
 
     plt.figure(figsize=(10, 8))
     plt.plot(train_loss, label='Train loss')
@@ -378,6 +377,20 @@ def from_video():
     # When everything done, release the capture
     cap.release()
     cv2.destroyAllWindows()
+
+
+def get_model_accuracy_swinyseg(model=None):
+    dataset = SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
+    dl = DataLoader(dataset, batch_size=1, shuffle=False)
+    if model is None:
+        model = CloudNetPlus(3, 6, residual=True, softmax=False, sigmoid=False)
+        model_saved_state = 'saved_state_weakly_denseloss_1e-9_88_96%'
+        saved_state = torch.load(model_saved_state, map_location='cpu')
+        model.load_state_dict(saved_state['model_state'])
+    model.type(torch.cuda.FloatTensor)
+    acc = test_acc(model, dl, use_softmax=True)
+    print(f'Test accuracy is {acc * 100}%')
 
 
 if __name__ == "__main__":
