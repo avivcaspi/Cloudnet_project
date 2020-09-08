@@ -65,3 +65,4 @@ class WeaklyLoss(nn.Module):
             regularization = regularization.cuda()
 
         return loss + regularization
+
