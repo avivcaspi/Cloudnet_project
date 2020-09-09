@@ -282,6 +282,7 @@ def evaluate_performance():
     tp, tn, fp, fn = 0.0, 0.0, 0.0, 0.0
 
 
+
 def show_inference(num_imgs=4, gt=False, print_patches=False):
     dtype = get_dtype()
 
@@ -343,7 +344,7 @@ def get_model_accuracy_swinyseg(model=None, use_softmax=True):
     dl = DataLoader(dataset, batch_size=1, shuffle=False)
     if model is None:
         model = CloudNetPlus(3, 6, residual=True, softmax=False)
-        model_saved_state = 'saved_state_weakly_denseloss_1e-9_88_96%'
+        model_saved_state = 'saved_state_swinyseg_full_training_celoss'
         saved_state = torch.load(model_saved_state, map_location='cpu')
         model.load_state_dict(saved_state['model_state'])
     model.type(torch.cuda.FloatTensor)
@@ -353,7 +354,7 @@ def get_model_accuracy_swinyseg(model=None, use_softmax=True):
 
 if __name__ == "__main__":
     # show_inference(num_imgs=4, gt=True, print_patches=True)
-    train_network(False)
+    get_model_accuracy_swinyseg()
     '''model = CloudNetPlus(3, 6, residual=True, softmax=True)
     saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
     model.load_state_dict(saved_state['model_state'])
