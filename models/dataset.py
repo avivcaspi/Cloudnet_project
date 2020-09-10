@@ -198,6 +198,26 @@ class ToTensor(object):
         return sample
 
 
+def get_dataloaders(name, csv_file, root_dir, transform, weakly, use_nir, batch_size):
+    if name == 'cloud95':
+        ds = Cloud95Dataset(csv_file=csv_file, root_dir=root_dir, transform=transform, train=True, use_nir=use_nir)
+    elif name == 'swinyseg':
+        ds = SwinysegDataset(csv_file=csv_file, root_dir=root_dir, transform=transform, train=True, weakly=weakly)
+    else:
+        raise Exception(f'Dataset {name} is not supported')
+
+    length = len(ds)
+    train_size = int(0.85 * length)
+    train_ds, valid_ds = torch.utils.data.random_split(ds, (train_size, length - train_size))
+    print(f'train set size is : {train_size}')
+    print(f'validation set size is : {length - train_size}')
+
+    num_workers = max(1, int(batch_size / 4))
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    return train_dl, valid_dl
+
+
 def show_image_gt_batch(image, gt, pred=None):
     """Show image with gt"""
     batch_size = image.shape[0]

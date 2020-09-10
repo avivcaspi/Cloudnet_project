@@ -164,10 +164,9 @@ class UpsamplingBlock(nn.Module):
 
 class CloudNetPlus(nn.Module):
 
-    def __init__(self, input_channels=4, inception_depth=6, residual=False, softmax=False, sigmoid=True):
+    def __init__(self, input_channels=4, inception_depth=6, residual=True, softmax=False):
         super().__init__()
         self.softmax = softmax
-        self.sigmoid = sigmoid
         self.depth = inception_depth
         self.contr_layers = []
         self.ff_layers = []
@@ -198,7 +197,7 @@ class CloudNetPlus(nn.Module):
         self.exp_layers = nn.ModuleList(self.exp_layers)
 
         # Upsampling layers
-        out_channels = 2 if softmax or not sigmoid else 1
+        out_channels = 2
         factor = 0
         for i in range(0, inception_depth - 1):
             factor = 2 ** (i + 2)
@@ -207,9 +206,9 @@ class CloudNetPlus(nn.Module):
         self.upsample_layers.append(UpsamplingBlock(input_channels * factor, out_channels, factor))
         self.upsample_layers = nn.ModuleList(self.upsample_layers)
 
-        if sigmoid or softmax:
+        if softmax:
             self.final_layer = nn.Sequential(nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
-                                             nn.Softmax2d() if softmax else nn.Sigmoid())
+                                             nn.Softmax(dim=1))
         else:
             self.final_layer = nn.Sequential(nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1))
 
@@ -252,9 +251,7 @@ class CloudNetPlus(nn.Module):
 
         # Final layer
         output = self.final_layer(output)
-        if self.sigmoid:
-            output = output.squeeze(1)
-            
+
         return output
 
 
