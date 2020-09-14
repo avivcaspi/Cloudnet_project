@@ -284,6 +284,40 @@ def show_image_gt_batch_weakly(image, gt, orig_gt, pred):
     plt.show()
 
 
+def show_weakly_batch(image, gt, orig_gt):
+    if isinstance(image, torch.Tensor):
+        image = image.numpy().transpose((0, 2, 3, 1))
+
+    gt_color = color.gray2rgb(gt)
+    gt_color[:,:,:, 0][gt == 0] = 255
+    gt_color[:,:,:, 1][gt == 1] = 255
+
+    overlay = color.gray2rgb(orig_gt)
+    overlay[:,:,:,0][gt == 0] = 1.0
+    overlay[:,:,:,:][gt == 1] = 0.0
+    overlay[:,:,:,1][gt == 1] = 1.0
+
+    gt = gt_color / 255
+
+    batch_size = image.shape[0]
+    fig, ax = plt.subplots(batch_size, 4, figsize=(25, batch_size * 5))
+    
+    ax = ax.reshape([batch_size, 4])
+    ax[0, 0].set_title('Image')
+    ax[0, 1].set_title('Full GT')
+    ax[0, 2].set_title('Scribble GT')
+    ax[0, 3].set_title('Overlayed')
+
+    for i in range(batch_size):
+        ax[i, 0].imshow(image[i, :, :, :3])
+        ax[i, 1].imshow(orig_gt[i], cmap='gray')
+        ax[i, 2].imshow(gt[i])
+        ax[i, 3].imshow(overlay[i])
+
+    plt.setp(ax, xticks=[], yticks=[])
+    plt.show()
+
+
 def show_image_inference_batch(image, pred, gt=None):
     """Show image with gt"""
     if isinstance(image, torch.Tensor):
@@ -322,6 +356,7 @@ def gt_to_onehot(gt_image):
 if __name__ == '__main__':
     dataset = SwinysegDataset('../data/swinyseg/metadata_train.csv', '../data/swinyseg/', weakly=True,
                               transform=transforms.Compose([Rescale(256), ToTensor()]), train=True)
-    x = dataset[0]
+    dl = DataLoader(dataset, batch_size=5, shuffle=True)
+    batch = next(iter(dl))
 
-
+    show_weakly_batch(batch['image'], batch['gt'], batch['orig_gt'])
