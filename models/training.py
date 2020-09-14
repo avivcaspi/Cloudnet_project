@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from skimage import io, transform
+from sklearn.metrics import confusion_matrix
 import cv2
 
 
@@ -249,7 +250,7 @@ def train_network(weakly=False):
 
     train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = trainer.train(epochs=50)
 
-    get_model_accuracy_swinyseg(trainer.model, use_softmax=weakly)
+    # get_model_accuracy_swinyseg(trainer.model, use_softmax=weakly)
 
     plot_graph(train_loss, valid_loss, 'loss', f'../plots/losses with denseloss {dense_loss_weight}.png')
     plot_graph(train_acc, valid_acc, 'accuracy', f'../plots/ accuracy with denseloss {dense_loss_weight}.png')
@@ -277,22 +278,49 @@ def plot_graph(train_data, valid_data, data_type, destination):
     plt.show()
 
 
-def evaluate_performance():
+def evaluate_performance(model, test_dl, use_softmax):
     # Calculate TP TN FP FN for all images in test set
     tp, tn, fp, fn = 0.0, 0.0, 0.0, 0.0
+    is_cuda = next(model.parameters()).is_cuda
+    dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
+    softmax = nn.Softmax(dim=1)
+
+    model.train(False)
+
+    for sample_batched in test_dl:
+        x = sample_batched['image'].type(dtype)
+        y = sample_batched['gt'].type(dtype)
+
+        with torch.no_grad():
+            outputs = model(x)
+            if use_softmax:
+                outputs = softmax(outputs)
+            mask = torch.argmax(outputs, 1)
+            tn_curr, fp_curr, fn_curr, tp_curr = confusion_matrix(y.cpu().numpy().flatten(),
+                                                                  mask.cpu().numpy().flatten()).ravel()
+            tp += tp_curr
+            tn += tn_curr
+            fp += fp_curr
+            fn += fn_curr
+    jaccard_index = tp / (tp + fp + fn)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    specificity = tn / (tn + fp)
+    accuracy = (tn + tp) / (tp + tn + fp + fn)
+    print(
+        f'jaccard_index = {jaccard_index}\n precision = {precision} \n recall = {recall} \n specificity = {specificity} \n accuracy = {accuracy}')
 
 
-
-def show_inference(num_imgs=4, gt=False, print_patches=False):
+def show_inference(num_imgs=6, gt=False, print_patches=False):
     dtype = get_dtype()
 
     model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
-    saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
+    saved_state = torch.load('saved_state_weakly_denseloss_1e-10', map_location='cpu')
 
-    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata.csv',
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
                               root_dir='../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(256), ToTensor()]))
-    dl = DataLoader(dataset, batch_size=num_imgs, shuffle=True, num_workers=4)
+                              transform=transforms.Compose([Rescale(192), ToTensor()]))
+    dl = DataLoader(dataset, batch_size=num_imgs, shuffle=False, num_workers=4)
 
     batch = next(iter(dl))
     imgs = batch['image'].type(dtype)
@@ -338,23 +366,27 @@ def from_video():
     cv2.destroyAllWindows()
 
 
-def get_model_accuracy_swinyseg(model=None, use_softmax=True):
+def get_model_evaluation_swinyseg(model=None, use_softmax=True):
     dataset = SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
                               transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
     dl = DataLoader(dataset, batch_size=1, shuffle=False)
-    if model is None:
+    model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new', 'saved_state_swinyseg_full_training_celoss', 'saved_state_weakly_celoss',
+                          'saved_state_weakly_denseloss_1e-9',
+                          'saved_state_weakly_denseloss_3e-10', 'saved_state_weakly_denseloss_5e-10',
+                          'saved_state_weakly_denseloss_1e-10', 'saved_state_weakly_denseloss_4e-10']
+    for model_saved_state in model_saved_states:
         model = CloudNetPlus(3, 6, residual=True, softmax=False)
-        model_saved_state = 'saved_state_swinyseg_full_training_celoss'
         saved_state = torch.load(model_saved_state, map_location='cpu')
         model.load_state_dict(saved_state['model_state'])
-    model.type(torch.cuda.FloatTensor)
-    acc = test_acc(model, dl, use_softmax=use_softmax)
-    print(f'Test accuracy is {acc * 100}%')
+        model.type(torch.cuda.FloatTensor)
+        print(model_saved_state)
+        evaluate_performance(model, dl, use_softmax=use_softmax)
+    # print(f'Test accuracy is {acc * 100}%')
 
 
 if __name__ == "__main__":
     # show_inference(num_imgs=4, gt=True, print_patches=True)
-    get_model_accuracy_swinyseg()
+    show_inference(gt=True)
     '''model = CloudNetPlus(3, 6, residual=True, softmax=True)
     saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
     model.load_state_dict(saved_state['model_state'])

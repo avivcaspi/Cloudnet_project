@@ -289,7 +289,7 @@ def show_image_inference_batch(image, pred, gt=None):
     if isinstance(image, torch.Tensor):
         image = image.numpy().transpose((0, 2, 3, 1))
     if len(pred.shape) == 4:
-        pred = pred[:, 1, :, :]
+        pred = torch.argmax(pred, 1)
 
     batch_size = image.shape[0]
     num_cols = 2 if gt is None else 3
