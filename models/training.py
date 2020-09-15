@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
-from losses import FilteredJaccardLoss, WeaklyLoss
+from losses import FilteredJaccardLoss, WeaklyLoss, CrossEntropyLoss
 from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch, \
     show_image_gt_batch_weakly, get_dataloaders
 from torchvision import transforms
@@ -22,11 +22,9 @@ class Trainer:
         self.dtype = get_dtype()
 
         self.weakly = weakly_training
-        self.use_softmax = not weakly_training
 
         # Model
         net_params = kwargs['network_parameters']  # in_channels and depth
-        net_params['softmax'] = self.use_softmax
         self.network_parameters = net_params
         self.model = CloudNetPlus(**self.network_parameters)
 
@@ -45,7 +43,10 @@ class Trainer:
         if self.weakly:
             self.loss_fn = WeaklyLoss(dense_crf_weight=kwargs['dense_loss_weight'], ignore_index=255)
         else:
-            self.loss_fn = FilteredJaccardLoss()
+            if kwargs['loss_fn'] == 'ce':
+                self.loss_fn = CrossEntropyLoss()
+            else:
+                self.loss_fn = FilteredJaccardLoss()
 
         # Accuracy function
         if self.weakly:
@@ -54,8 +55,7 @@ class Trainer:
             self.acc_fn = acc_metric
 
         # Extras
-        if self.weakly:
-            self.softmax = nn.Softmax(dim=1)
+        self.softmax = nn.Softmax(dim=1)
 
     def train(self, epochs=1):
         start = time.time()
@@ -119,10 +119,11 @@ class Trainer:
                             loss = self.loss_fn(*args)
 
                     # stats - whatever is the phase
+                    outputs = self.softmax(outputs)
                     acc = self.acc_fn(outputs, y)
                     orig_acc = 0.0
                     if self.weakly:
-                        orig_acc = acc_metric(self.softmax(outputs), y_orig)
+                        orig_acc = acc_metric(outputs, y_orig)
                         running_orig_acc += orig_acc * dataloader.batch_size
 
                     running_acc += acc * dataloader.batch_size
@@ -131,8 +132,8 @@ class Trainer:
                     if epoch % 10 == 0 and flag:
                         with torch.no_grad():
                             outputs = self.model(x)
+                            outputs = self.softmax(outputs)
                             if self.weakly:
-                                outputs = self.softmax(outputs)
                                 show_image_gt_batch_weakly(x.cpu(), y.cpu(), y_orig.cpu(), outputs.cpu())
                             else:
                                 show_image_gt_batch(x.cpu(), y.cpu(), outputs.cpu())
@@ -191,71 +192,57 @@ def weakly_acc(pred, y):
     return ((mask == y.type(dtype)) * relevant).float().sum() / relevant.sum()
 
 
-def test_acc(model: torch.nn.Module, test_dl: DataLoader, threshold=0.5, use_softmax=False):
-    is_cuda = next(model.parameters()).is_cuda
-    dtype = torch.cuda.FloatTensor if is_cuda else torch.FloatTensor
-    softmax = nn.Softmax(dim=1)
+def get_training_kwargs(weakly: bool, loss_fn: str, reg_weight: float, dataset: str):
+    if dataset not in ['swinyseg', '95cloud-3d', '95cloud-4d']:
+        raise Exception(f'Dataset {dataset} does not exist, dataset must be '
+                        f'one of the following swinyseg, 95cloud-3d, 95cloud-4d')
+    if loss_fn not in ['ce', 'jaccard']:
+        raise Exception(f'loss function {loss_fn} does not exist, loss_fn must be one of the following ce, jaccard')
 
-    model.train(False)
-    running_acc = 0.0
-
-    for sample_batched in test_dl:
-        x = sample_batched['image'].type(dtype)
-        y = sample_batched['gt'].type(dtype)
-
-        with torch.no_grad():
-            outputs = model(x)
-            if use_softmax:
-                outputs = softmax(outputs)
-        acc = acc_metric(outputs, y, threshold)
-
-        running_acc += acc * test_dl.batch_size
-
-    total_acc = running_acc / len(test_dl.dataset)
-    return total_acc
-
-
-def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None):
-    if saved_state is not None:
-        model.load_state_dict(saved_state['model_state'])
-
-    if images.ndim == 3:
-        images = images.unsqueeze(0)
-    if gt is not None and gt.ndim == 3:
-        gt = gt.cpu()
-
-    model.eval()
-    with torch.no_grad():
-        output = model(images)
-
-    show_image_inference_batch(images.cpu(), output.cpu(), gt=gt)
-
-
-def train_network(weakly=False):
-    network_parameters = {'inception_depth': 6,
-                          'input_channels': 3}
-    dataset_parameters = {'name': 'swinyseg',
-                          'csv_file': '../data/swinyseg/metadata_train.csv',
-                          'root_dir': '../data/swinyseg/',
-                          'transform': transforms.Compose([Rescale(192), ToTensor()]),
-                          'batch_size': 16}
-    dense_loss_weight = 3e-10
+    if dataset == 'swinyseg':
+        network_parameters = {'inception_depth': 6,
+                              'input_channels': 3}
+        dataset_parameters = {'name': 'swinyseg',
+                              'csv_file': '../data/swinyseg/metadata_train.csv',
+                              'root_dir': '../data/swinyseg/',
+                              'transform': transforms.Compose([Rescale(192), ToTensor()]),
+                              'batch_size': 16}
+    else:
+        assert not weakly, 'Weakly training is currently only for swinyseg dataset'
+        network_parameters = {'inception_depth': 6,
+                              'input_channels': 3 if '3d' in dataset else 4}
+        dataset_parameters = {'name': 'cloud95',
+                              'csv_file': '../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+                              'root_dir': '../data/95-cloud_train/',
+                              'transform': transforms.Compose([Rescale(192), ToTensor()]),
+                              'batch_size': 16}
     lr = 1e-3
-    kwarg = {'lr': lr,
-             'dense_loss_weight': dense_loss_weight,
-             'network_parameters': network_parameters,
-             'dataset_parameters': dataset_parameters}
+    kwargs = {'lr': lr,
+              'network_parameters': network_parameters,
+              'dataset_parameters': dataset_parameters,
+              'loss_fn': loss_fn}
+    if weakly:
+        dense_loss_weight = reg_weight
+        kwargs['dense_loss_weight'] = dense_loss_weight
 
-    trainer = Trainer(weakly_training=weakly, **kwarg)
+    return kwargs
 
-    train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = trainer.train(epochs=50)
 
-    # get_model_accuracy_swinyseg(trainer.model, use_softmax=weakly)
+def train_network(weakly, loss_fn, reg_weight, dataset, plot_name='', epochs=50):
 
-    plot_graph(train_loss, valid_loss, 'loss', f'../plots/losses with denseloss {dense_loss_weight}.png')
-    plot_graph(train_acc, valid_acc, 'accuracy', f'../plots/ accuracy with denseloss {dense_loss_weight}.png')
+    kwargs = get_training_kwargs(weakly, loss_fn, reg_weight, dataset)
+
+    trainer = Trainer(weakly_training=weakly, **kwargs)
+
+    train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = trainer.train(epochs=epochs)
+
+    plot_graph(train_loss, valid_loss, 'loss', f'../plots/losses {dataset} {plot_name}.png')
+    plot_graph(train_acc, valid_acc, 'accuracy', f'../plots/ accuracy {dataset} {plot_name}.png')
     plot_graph(train_orig_acc, valid_orig_acc, 'orig accuracy',
-               f'../plots/orig accuracy with denseloss {dense_loss_weight}.png')
+               f'../plots/orig accuracy {dataset} {plot_name}.png')
+
+    if dataset == 'swinyseg':
+        get_models_evaluation_swinyseg(trainer.model)
 
 
 def get_dtype():
@@ -278,7 +265,7 @@ def plot_graph(train_data, valid_data, data_type, destination):
     plt.show()
 
 
-def evaluate_performance(model, test_dl, use_softmax):
+def evaluate_performance(model, test_dl):
     # Calculate TP TN FP FN for all images in test set
     tp, tn, fp, fn = 0.0, 0.0, 0.0, 0.0
     is_cuda = next(model.parameters()).is_cuda
@@ -293,8 +280,7 @@ def evaluate_performance(model, test_dl, use_softmax):
 
         with torch.no_grad():
             outputs = model(x)
-            if use_softmax:
-                outputs = softmax(outputs)
+            outputs = softmax(outputs)
             mask = torch.argmax(outputs, 1)
             tn_curr, fp_curr, fn_curr, tp_curr = confusion_matrix(y.cpu().numpy().flatten(),
                                                                   mask.cpu().numpy().flatten()).ravel()
@@ -307,15 +293,54 @@ def evaluate_performance(model, test_dl, use_softmax):
     recall = tp / (tp + fn)
     specificity = tn / (tn + fp)
     accuracy = (tn + tp) / (tp + tn + fp + fn)
-    print(
-        f'jaccard_index = {jaccard_index}\n precision = {precision} \n recall = {recall} \n specificity = {specificity} \n accuracy = {accuracy}')
+    print(f'jaccard_index = {jaccard_index}\nprecision = {precision} \nrecall = {recall} '
+          f'\nspecificity = {specificity} \naccuracy = {accuracy}')
 
 
-def show_inference(num_imgs=6, gt=False, print_patches=False):
+def get_models_evaluation_swinyseg(model=None):
+    dataset = SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
+    dl = DataLoader(dataset, batch_size=1, shuffle=False)
+    if model is None:
+        model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new',
+                              'saved_state_swinyseg_full_training_celoss', 'saved_state_weakly_celoss',
+                              'saved_state_weakly_denseloss_1e-9',
+                              'saved_state_weakly_denseloss_3e-10', 'saved_state_weakly_denseloss_5e-10',
+                              'saved_state_weakly_denseloss_1e-10', 'saved_state_weakly_denseloss_4e-10']
+        for model_saved_state in model_saved_states:
+            model = CloudNetPlus(3, 6, residual=True)
+            saved_state = torch.load(model_saved_state, map_location='cpu')
+            model.load_state_dict(saved_state['model_state'])
+            model.type(torch.cuda.FloatTensor)
+            print(model_saved_state)
+            evaluate_performance(model, dl)
+    else:
+        evaluate_performance(model, dl)
+
+
+def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None):
+    if saved_state is not None:
+        model.load_state_dict(saved_state['model_state'])
+
+    if images.ndim == 3:
+        images = images.unsqueeze(0)
+    if gt is not None and gt.ndim == 3:
+        gt = gt.cpu()
+
+    model.eval()
+    softmax = nn.Softmax(dim=1)
+    with torch.no_grad():
+        output = model(images)
+        output = softmax(output)
+
+    show_image_inference_batch(images.cpu(), output.cpu(), gt=gt)
+
+
+def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
     dtype = get_dtype()
 
-    model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
-    saved_state = torch.load('saved_state_weakly_denseloss_1e-10', map_location='cpu')
+    model = CloudNetPlus(3, 6, residual=True).type(dtype)
+    saved_state = torch.load(saved_state_file, map_location='cpu')
 
     dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
                               root_dir='../data/swinyseg/',
@@ -334,67 +359,7 @@ def show_inference(num_imgs=6, gt=False, print_patches=False):
     inference(model, imgs, saved_state=saved_state, gt=gt_images)
 
 
-def from_video():
-    dtype = get_dtype()
-    model = CloudNetPlus(3, 6, residual=True, softmax=True).type(dtype)
-    saved_state = torch.load('saved_state_swinyseg_new', map_location='cpu')
-    model.load_state_dict(saved_state['model_state'])
-    model.type(dtype).eval()
-
-    cap = cv2.VideoCapture(0)
-
-    while True:
-        # Capture frame-by-frame
-        ret, frame = cap.read()
-
-        frame = frame / 255
-        frame_scaled = frame[:256, :256]
-        frame_T = frame_scaled.transpose((2, 0, 1))
-        frame_tensor = torch.from_numpy(frame_T).unsqueeze(0).type(dtype)
-        with torch.no_grad():
-            output = model(frame_tensor)[0, 0, :, :].unsqueeze(0)
-            output = cv2.cvtColor(output.cpu().numpy().transpose(1, 2, 0), cv2.COLOR_GRAY2RGB)
-
-        # Display the resulting frame
-        cv2.imshow('frame', np.concatenate((output, frame_scaled), axis=1))
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    # When everything done, release the capture
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-def get_model_evaluation_swinyseg(model=None, use_softmax=True):
-    dataset = SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
-    dl = DataLoader(dataset, batch_size=1, shuffle=False)
-    model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new', 'saved_state_swinyseg_full_training_celoss', 'saved_state_weakly_celoss',
-                          'saved_state_weakly_denseloss_1e-9',
-                          'saved_state_weakly_denseloss_3e-10', 'saved_state_weakly_denseloss_5e-10',
-                          'saved_state_weakly_denseloss_1e-10', 'saved_state_weakly_denseloss_4e-10']
-    for model_saved_state in model_saved_states:
-        model = CloudNetPlus(3, 6, residual=True, softmax=False)
-        saved_state = torch.load(model_saved_state, map_location='cpu')
-        model.load_state_dict(saved_state['model_state'])
-        model.type(torch.cuda.FloatTensor)
-        print(model_saved_state)
-        evaluate_performance(model, dl, use_softmax=use_softmax)
-    # print(f'Test accuracy is {acc * 100}%')
-
-
 if __name__ == "__main__":
     # show_inference(num_imgs=4, gt=True, print_patches=True)
-    show_inference(gt=True)
-    '''model = CloudNetPlus(3, 6, residual=True, softmax=True)
-    saved_state = torch.load('saved_state_95-cloud-3d', map_location='cpu')
-    model.load_state_dict(saved_state['model_state'])
-    model.type(torch.cuda.FloatTensor)
+    train_network(False, 'jaccard', 0, '95cloud-4d', epochs=11)
 
-    x = batch.type(torch.cuda.FloatTensor)
-
-    with torch.no_grad():
-        output = model(x)
-
-    show_image_inference_batch(batch, output.cpu())'''
