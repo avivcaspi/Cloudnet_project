@@ -231,7 +231,7 @@ def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None)
     show_image_inference_batch(images.cpu(), output.cpu(), gt=gt)
 
 
-def train_network(weakly=False):
+def train_network(weakly=False, epochs=50):
     network_parameters = {'inception_depth': 6,
                           'input_channels': 3}
     dataset_parameters = {'name': 'swinyseg',
@@ -248,7 +248,7 @@ def train_network(weakly=False):
 
     trainer = Trainer(weakly_training=weakly, **kwarg)
 
-    train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = trainer.train(epochs=50)
+    train_loss, valid_loss, train_acc, valid_acc, train_orig_acc, valid_orig_acc = trainer.train(epochs=epochs)
 
     # get_model_accuracy_swinyseg(trainer.model, use_softmax=weakly)
 
