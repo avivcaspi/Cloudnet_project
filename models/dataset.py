@@ -153,7 +153,10 @@ class Rescale(object):
         self.output_size = output_size
 
     def __call__(self, sample):
-        image, gt, orig_gt, full_weakly = sample['image'], sample['gt'], sample['orig_gt'], sample['full_weakly']
+        image, gt = sample['image'], sample['gt']
+        orig_gt_flag = 'orig_gt' in sample
+        orig_gt = sample['orig_gt'] if orig_gt_flag else None
+        full_weakly = sample['full_weakly'] if orig_gt_flag else None
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
@@ -171,8 +174,10 @@ class Rescale(object):
         if gt is not None:
             gt = cv2.resize(gt, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST)
 
-        orig_gt = cv2.resize(orig_gt, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST) if orig_gt is not None else None
-        full_weakly = cv2.resize(full_weakly, dsize=(new_h, new_w), interpolation=cv2.INTER_NEAREST) if full_weakly is not None else None
+        orig_gt = cv2.resize(orig_gt, dsize=(new_h, new_w),
+                             interpolation=cv2.INTER_NEAREST) if orig_gt is not None else None
+        full_weakly = cv2.resize(full_weakly, dsize=(new_h, new_w),
+                                 interpolation=cv2.INTER_NEAREST) if full_weakly is not None else None
 
         sample['image'] = img
         sample['gt'] = gt
@@ -257,8 +262,8 @@ def show_image_gt_batch_weakly(image, gt, orig_gt, pred):
     if pred is not None and len(pred.shape) == 4:
         pred = pred[:, 1, :, :]
     gt_color = color.gray2rgb(gt)
-    gt_color[:,:,:, 0][gt == 0] = 255
-    gt_color[:,:,:, 1][gt == 1] = 255
+    gt_color[:, :, :, 0][gt == 0] = 255
+    gt_color[:, :, :, 1][gt == 1] = 255
     gt = gt_color / 255
     fig, ax = plt.subplots(batch_size, 4, figsize=(25, batch_size * 5))
     if batch_size == 1:
@@ -289,19 +294,19 @@ def show_weakly_batch(image, gt, orig_gt):
         image = image.numpy().transpose((0, 2, 3, 1))
 
     gt_color = color.gray2rgb(gt)
-    gt_color[:,:,:, 0][gt == 0] = 255
-    gt_color[:,:,:, 1][gt == 1] = 255
+    gt_color[:, :, :, 0][gt == 0] = 255
+    gt_color[:, :, :, 1][gt == 1] = 255
 
     overlay = color.gray2rgb(orig_gt)
-    overlay[:,:,:,0][gt == 0] = 1.0
-    overlay[:,:,:,:][gt == 1] = 0.0
-    overlay[:,:,:,1][gt == 1] = 1.0
+    overlay[:, :, :, 0][gt == 0] = 1.0
+    overlay[:, :, :, :][gt == 1] = 0.0
+    overlay[:, :, :, 1][gt == 1] = 1.0
 
     gt = gt_color / 255
 
     batch_size = image.shape[0]
     fig, ax = plt.subplots(batch_size, 4, figsize=(25, batch_size * 5))
-    
+
     ax = ax.reshape([batch_size, 4])
     ax[0, 0].set_title('Image')
     ax[0, 1].set_title('Full GT')

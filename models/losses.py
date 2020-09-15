@@ -16,6 +16,8 @@ class FilteredJaccardLoss(nn.Module):
         """
 
         if len(y_pred.shape) == 4:
+            softmax = nn.Softmax(dim=1)
+            y_pred = softmax(y_pred)
             y_pred = y_pred[:, 1, :, :]
         if y_true.sum() == 0:
             i = ((1 - y_true) * (1 - y_pred)).sum().float()
@@ -25,6 +27,24 @@ class FilteredJaccardLoss(nn.Module):
             i = (y_true * y_pred).sum().float()
             u = (y_true + y_pred).sum().float()
             loss = 1. - (i / (u - i + epsilon))
+
+        return loss
+
+
+class CrossEntropyLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ce_loss = nn.CrossEntropyLoss()
+
+    def forward(self, logit, target):
+        n, c, h, w = logit.size()
+
+        if isinstance(target, torch.cuda.FloatTensor):
+            self.ce_loss = self.ce_loss.cuda()
+
+        loss = self.ce_loss(logit, target.long())
+
+        loss /= n
 
         return loss
 
