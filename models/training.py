@@ -361,5 +361,5 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 if __name__ == "__main__":
     # show_inference(num_imgs=4, gt=True, print_patches=True)
-    train_network(False, 'jaccard', 0, '95cloud-4d', epochs=11)
+    train_network(False, 'jaccard', 0, 'swinyseg', epochs=100)
 

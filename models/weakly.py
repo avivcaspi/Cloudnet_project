@@ -14,18 +14,32 @@ import torch.utils.data as data
 from PIL import Image
 
 
-class Node:
-    def __init__(self, p, h, father, g=0.0, w=0.5):
-        self.p = p
-        self.h = h
-        self.father = father
-        self.g = g
-        self.f = w * h + (1 - w) * g
+# ---------------------- Start generation testing code ------------------------
+def erode(img, selem):
+    res = binary_erosion(img, selem).astype(float)
+    return res
 
-    def __eq__(self, other):
-        if self.p == other.p:
-            return True
-        return False
+
+def open(img, selem):
+    res = binary_opening(img, selem).astype(float)
+    return res
+
+
+def open_and_erode(img):
+    img = np.pad(img, 1, 'constant', constant_values=0)
+    selem_disk = disk(10)
+    selem_square = square(20)
+    plt.figure()
+    plt.subplot(1, 3, 1)
+    plt.imshow(img, cmap='gray')
+
+    res_img = open(img, selem_disk)
+    plt.subplot(1, 3, 2)
+    plt.imshow(res_img, cmap='gray')
+    res_img = erode(res_img, selem_disk)
+    plt.subplot(1, 3, 3)
+    plt.imshow(res_img, cmap='gray')
+    plt.show()
 
 
 def BeamSearch(img: np.ndarray, start: tuple, finish: tuple, h: callable):
@@ -59,34 +73,60 @@ def insert_node_sorted_h(list, node):
     list.append(node)
 
 
+def DFS_util(img, p):
+    img[p] = 0.5
+    flag = True
+    best_len = 0
+    best_p = None
+    for i in [-1, 0, 1]:
+        for j in [-1, 0, 1]:
+            if i == 0 and j == 0:
+                continue
+            child = (p[0] + i, p[1] + j)
+            if 0 <= child[0] < img.shape[0] and 0 <= child[1] < img.shape[1] and img[child] == 1.0:
+                flag = False
+                length, end = DFS_util(img, child)
+                if length > best_len:
+                    best_p = end
+                    best_len = length
+    if flag:
+        return 1, p
+    return best_len + 1, best_p
+
+
+def DFS(orig_img, p):
+    img = orig_img.copy()
+    length = 0
+    end = p
+    if img[p] == 1.0:
+        length, end = DFS_util(img, p)
+
+    return img, length, end
+# ---------------------- End generation testing code ------------------------
+
+
+# ---------------------- Start final scribbles generation code ------------------------
+class Node:
+    def __init__(self, p, h, father, g=0.0, w=0.5):
+        self.p = p
+        self.h = h
+        self.father = father
+        self.g = g
+        self.f = w * h + (1 - w) * g
+
+    def __eq__(self, other):
+        if self.p == other.p:
+            return True
+        return False
+
+
 def dist(p1, p2):
     return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
 
 def heuristic(img, p, finish):
     distance = dist(p, finish)
-    black = 10
-    near_black = 0
-    '''for i in range(1, 10, 2):
-        if 0 <= p[0] + i < img.shape[0]:
-            if img[p[0] + i, p[1]] == 0:
-                black = i
-                break
-        if 0 <= p[0] - i < img.shape[0]:
-            if img[p[0] - i, p[1]] == 0:
-                black = i
-                break
-        if 0 <= p[1] + i < img.shape[1]:
-            if img[p[0], p[1] + i] == 0:
-                black = i
-                break
-        if 0 <= p[1] - i < img.shape[1]:
-            if img[p[0], p[1] - 1] == 0:
-                black = i
-                break
-    near_black = 30 - black*3'''
-
-    return distance + near_black
+    return distance
 
 
 def get_next_states(img, p):
@@ -132,37 +172,6 @@ def BFS(orig_img, p):
     return img
 
 
-def DFS_util(img, p):
-    img[p] = 0.5
-    flag = True
-    best_len = 0
-    best_p = None
-    for i in [-1, 0, 1]:
-        for j in [-1, 0, 1]:
-            if i == 0 and j == 0:
-                continue
-            child = (p[0] + i, p[1] + j)
-            if 0 <= child[0] < img.shape[0] and 0 <= child[1] < img.shape[1] and img[child] == 1.0:
-                flag = False
-                length, end = DFS_util(img, child)
-                if length > best_len:
-                    best_p = end
-                    best_len = length
-    if flag:
-        return 1, p
-    return best_len + 1, best_p
-
-
-def DFS(orig_img, p):
-    img = orig_img.copy()
-    length = 0
-    end = p
-    if img[p] == 1.0:
-        length, end = DFS_util(img, p)
-
-    return img, length, end
-
-
 def weighted_astar(img, start, finish, w=0.5, verbose=0):
     open_nodes = []
     close_nodes = []
@@ -205,33 +214,6 @@ def weighted_astar(img, start, finish, w=0.5, verbose=0):
         img[p] = 0.3
         end_node = end_node.father'''
     return end_node
-
-
-def erode(img, selem):
-    res = binary_erosion(img, selem).astype(float)
-    return res
-
-
-def open(img, selem):
-    res = binary_opening(img, selem).astype(float)
-    return res
-
-
-def open_and_erode(img):
-    img = np.pad(img, 1, 'constant', constant_values=0)
-    selem_disk = disk(10)
-    selem_square = square(20)
-    plt.figure()
-    plt.subplot(1, 3, 1)
-    plt.imshow(img, cmap='gray')
-
-    res_img = open(img, selem_disk)
-    plt.subplot(1, 3, 2)
-    plt.imshow(res_img, cmap='gray')
-    res_img = erode(res_img, selem_disk)
-    plt.subplot(1, 3, 3)
-    plt.imshow(res_img, cmap='gray')
-    plt.show()
 
 
 def thin_and_connect(orig_img, verbose=0):
@@ -376,9 +358,14 @@ def generate_weakly_set():
     for thread in threads:
         thread.join()
 
+# ---------------------- End final scribbles generation code ------------------------
+
 
 if __name__ == '__main__':
     start_time = time.time()
+    generate_weakly_set()
+    print(f'Finished  all images in {time.time() - start_time} seconds')
+
 
     '''dataset = SwinysegDataset(
         csv_file='../data/swinyseg/metadata.csv',
@@ -438,7 +425,5 @@ if __name__ == '__main__':
         end_node = end_node.father
     plt.imshow(res_img, cmap='gray')
     plt.show()'''
-    # TODO  add code that tries to find route with long length, if it does not successed it saves the name and tries later with smaller number
 
-    generate_weakly_set()
-    print(f'Finished  all images in {time.time() - start_time} seconds')
+
