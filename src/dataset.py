@@ -403,9 +403,9 @@ def show_image_inference_batch(image, pred, gt=None):
 
     for i in range(batch_size):
         axes[i, 0].imshow(image[i, :, :, :3])
-        axes[i, 1].imshow(pred[i], cmap='gray')
+        axes[i, 1].imshow(pred[i], cmap='gray', vmin=0, vmax=1)
         if gt is not None:
-            axes[i, 2].imshow(gt[i], cmap='gray')
+            axes[i, 2].imshow(gt[i], cmap='gray', vmin=0, vmax=1)
 
     plt.setp(axes, xticks=[], yticks=[])
     plt.show()

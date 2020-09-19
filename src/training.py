@@ -338,7 +338,7 @@ def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None)
 def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
     dtype = get_dtype()
 
-    model = CloudNetPlus(3, 6, residual=True).type(dtype)
+    model = CloudNetPlus(3, 6 if 'depth' not in saved_state_file else int(saved_state_file[-1]), residual=True).type(dtype)
     saved_state = torch.load('saved states/' + saved_state_file, map_location='cpu')
 
     dataset = HYTADataset(csv_file='../data/HYTA/metadata.csv',
@@ -359,6 +359,6 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 
 if __name__ == "__main__":
-    get_models_evaluation(dataset='hyta')
-    # show_inference(saved_state_file='saved_state_swinyseg_new', num_imgs=32, gt=True, print_patches=False)
+    # get_models_evaluation(dataset='hyta')
+    show_inference(saved_state_file='saved_state_swinyseg_depth_5', num_imgs=32, gt=True, print_patches=False)
     # train_network(True, 'ce', 0, 'swinyseg', epochs=20)
