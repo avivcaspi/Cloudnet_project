@@ -139,6 +139,48 @@ class SwinysegDataset(Dataset):
         return sample
 
 
+class HYTADataset(Dataset):
+    """HYTA dataset."""
+
+    def __init__(self, csv_file, root_dir, transform=None):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+
+        self.patches_name = pd.read_csv(csv_file)
+        self.root_dir = root_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.patches_name)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_folder = 'images/'
+        gt_folder = '2GT/'
+
+        img_name = os.path.join(self.root_dir,
+                                img_folder + self.patches_name.iloc[idx, 0] + '.jpg')
+        gt_map_name = os.path.join(self.root_dir,
+                                   gt_folder + self.patches_name.iloc[idx, 0] + '_GT.jpg')
+
+        image = io.imread(img_name) / 255
+        gt_img = io.imread(gt_map_name) / 255
+
+        sample = {'image': image, 'gt': gt_img, 'patch_name': self.patches_name.iloc[idx, 0]}
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
+
+
 class Rescale(object):
     """Rescale the image in a sample to a given size.
 
@@ -359,9 +401,9 @@ def gt_to_onehot(gt_image):
 
 
 if __name__ == '__main__':
-    dataset = SwinysegDataset('../data/swinyseg/metadata_train.csv', '../data/swinyseg/', weakly=True,
-                              transform=transforms.Compose([Rescale(256), ToTensor()]), train=True)
-    dl = DataLoader(dataset, batch_size=5, shuffle=True)
+    dataset = HYTADataset('../data/HYTA/metadata.csv', '../data/HYTA/',
+                              transform=transforms.Compose([Rescale((256, 256)), ToTensor()]))
+    dl = DataLoader(dataset, batch_size=16, shuffle=True)
     batch = next(iter(dl))
 
-    show_weakly_batch(batch['image'], batch['gt'], batch['orig_gt'])
+    show_image_gt_batch(batch['image'], batch['gt'])

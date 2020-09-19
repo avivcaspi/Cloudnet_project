@@ -6,7 +6,7 @@ import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
 from losses import FilteredJaccardLoss, WeaklyLoss, CrossEntropyLoss
 from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch, \
-    show_image_gt_batch_weakly, get_dataloaders
+    show_image_gt_batch_weakly, get_dataloaders, HYTADataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -229,7 +229,6 @@ def get_training_kwargs(weakly: bool, loss_fn: str, reg_weight: float, dataset: 
 
 
 def train_network(weakly, loss_fn, reg_weight, dataset, plot_name='', epochs=50):
-
     kwargs = get_training_kwargs(weakly, loss_fn, reg_weight, dataset)
 
     trainer = Trainer(weakly_training=weakly, **kwargs)
@@ -342,9 +341,9 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
     model = CloudNetPlus(3, 6, residual=True).type(dtype)
     saved_state = torch.load(saved_state_file, map_location='cpu')
 
-    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
-                              root_dir='../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(192), ToTensor()]))
+    dataset = HYTADataset(csv_file='../data/HYTA/metadata.csv',
+                          root_dir='../data/HYTA/',
+                          transform=transforms.Compose([Rescale((192, 192)), ToTensor()]))
     dl = DataLoader(dataset, batch_size=num_imgs, shuffle=False, num_workers=4)
 
     batch = next(iter(dl))
@@ -360,6 +359,5 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 
 if __name__ == "__main__":
-    # show_inference(num_imgs=4, gt=True, print_patches=True)
-    train_network(False, 'jaccard', 0, 'swinyseg', epochs=100)
-
+    show_inference(saved_state_file='saved_state_swinyseg_new', num_imgs=32, gt=True, print_patches=False)
+    # train_network(True, 'ce', 0, 'swinyseg', epochs=20)
