@@ -245,6 +245,24 @@ class ToTensor(object):
         return sample
 
 
+def get_dataset(name):
+    if name not in ['swinyseg', '95cloud-3d', '95cloud-4d', 'hyta']:
+        raise Exception(f'Dataset {name} does not exist, dataset must be '
+                        f'one of the following swinyseg, 95cloud-3d, 95cloud-4d, hyta')
+    if name == 'swinyseg':
+        return SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
+                               transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
+    elif name == 'hyta':
+        return HYTADataset(csv_file='../data/HYTA/metadata.csv',
+                           root_dir='../data/HYTA/',
+                           transform=transforms.Compose([Rescale((192, 192)), ToTensor()]))
+    else:
+        return Cloud95Dataset(csv_file='../data/95-cloud_train/training_patches_95-cloud_nonempty.csv',
+                              root_dir='../data/95-cloud_train/',
+                              transform=transforms.Compose([Rescale(192), ToTensor()]),
+                              train=False, use_nir=True if '4d' in name else False)
+
+
 def get_dataloaders(name, csv_file, root_dir, transform, weakly, use_nir, batch_size):
     if name == 'cloud95':
         ds = Cloud95Dataset(csv_file=csv_file, root_dir=root_dir, transform=transform, train=True, use_nir=use_nir)

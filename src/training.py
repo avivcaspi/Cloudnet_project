@@ -6,7 +6,7 @@ import torch.nn as nn
 from cloud_net_plus import CloudNetPlus
 from losses import FilteredJaccardLoss, WeaklyLoss, CrossEntropyLoss
 from dataset import SwinysegDataset, Cloud95Dataset, ToTensor, Rescale, show_image_gt_batch, show_image_inference_batch, \
-    show_image_gt_batch_weakly, get_dataloaders, HYTADataset
+    show_image_gt_batch_weakly, get_dataloaders, HYTADataset, get_dataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -167,7 +167,7 @@ class Trainer:
         time_elapsed = time.time() - start
         print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
         saved_state = dict(model_state=self.model.state_dict())
-        torch.save(saved_state, 'saved_state')
+        torch.save(saved_state, 'saved states/saved_state')
         print(f'*** Saved checkpoint ***')
         # print(f'Finding best threshold:')
         # find_best_threshold(model, valid_dl)
@@ -241,7 +241,7 @@ def train_network(weakly, loss_fn, reg_weight, dataset, plot_name='', epochs=50)
                f'../plots/orig accuracy {dataset} {plot_name}.png')
 
     if dataset == 'swinyseg':
-        get_models_evaluation_swinyseg(trainer.model)
+        get_models_evaluation(trainer.model)
 
 
 def get_dtype():
@@ -281,8 +281,8 @@ def evaluate_performance(model, test_dl):
             outputs = model(x)
             outputs = softmax(outputs)
             mask = torch.argmax(outputs, 1)
-            tn_curr, fp_curr, fn_curr, tp_curr = confusion_matrix(y.cpu().numpy().flatten(),
-                                                                  mask.cpu().numpy().flatten()).ravel()
+            tn_curr, fp_curr, fn_curr, tp_curr = confusion_matrix(y.cpu().type(torch.int64).numpy().flatten(),
+                                                                  mask.cpu().numpy().flatten(), labels=[0, 1]).ravel()
             tp += tp_curr
             tn += tn_curr
             fp += fp_curr
@@ -296,19 +296,19 @@ def evaluate_performance(model, test_dl):
           f'\nspecificity = {specificity} \naccuracy = {accuracy}')
 
 
-def get_models_evaluation_swinyseg(model=None):
-    dataset = SwinysegDataset('../data/swinyseg/metadata_test.csv', '../data/swinyseg/',
-                              transform=transforms.Compose([Rescale(192), ToTensor()]), train=False)
+def get_models_evaluation(model=None, dataset='swinyseg'):
+    dataset = get_dataset(dataset)
     dl = DataLoader(dataset, batch_size=1, shuffle=False)
     if model is None:
-        model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new',
+        model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new', 'saved_state_swinyseg_depth_3',
+                              'saved_state_swinyseg_depth_4', 'saved_state_swinyseg_depth_5',
                               'saved_state_swinyseg_full_training_celoss', 'saved_state_weakly_celoss',
                               'saved_state_weakly_denseloss_1e-9',
                               'saved_state_weakly_denseloss_3e-10', 'saved_state_weakly_denseloss_5e-10',
                               'saved_state_weakly_denseloss_1e-10', 'saved_state_weakly_denseloss_4e-10']
         for model_saved_state in model_saved_states:
-            model = CloudNetPlus(3, 6, residual=True)
-            saved_state = torch.load(model_saved_state, map_location='cpu')
+            model = CloudNetPlus(3, 6 if 'depth' not in model_saved_state else int(model_saved_state[-1]), residual=True)
+            saved_state = torch.load('saved states/' + model_saved_state, map_location='cpu')
             model.load_state_dict(saved_state['model_state'])
             model.type(torch.cuda.FloatTensor)
             print(model_saved_state)
@@ -339,7 +339,7 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
     dtype = get_dtype()
 
     model = CloudNetPlus(3, 6, residual=True).type(dtype)
-    saved_state = torch.load(saved_state_file, map_location='cpu')
+    saved_state = torch.load('saved states/' + saved_state_file, map_location='cpu')
 
     dataset = HYTADataset(csv_file='../data/HYTA/metadata.csv',
                           root_dir='../data/HYTA/',
@@ -359,5 +359,6 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 
 if __name__ == "__main__":
-    show_inference(saved_state_file='saved_state_swinyseg_new', num_imgs=32, gt=True, print_patches=False)
+    get_models_evaluation(dataset='hyta')
+    # show_inference(saved_state_file='saved_state_swinyseg_new', num_imgs=32, gt=True, print_patches=False)
     # train_network(True, 'ce', 0, 'swinyseg', epochs=20)
