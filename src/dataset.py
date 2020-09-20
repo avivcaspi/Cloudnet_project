@@ -399,7 +399,7 @@ def show_image_inference_batch(image, pred, gt=None):
 
     titles = ['Image', 'Pred', 'GT']
     for i in range(num_cols):
-        axes[0, i].set_title(titles[i])
+        axes[0, i].set_title(titles[i], fontsize=18)
 
     for i in range(batch_size):
         axes[i, 0].imshow(image[i, :, :, :3])

@@ -166,7 +166,9 @@ class Trainer:
 
         time_elapsed = time.time() - start
         print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-        saved_state = dict(model_state=self.model.state_dict())
+        saved_state = dict(model_state=self.model.state_dict(), train_loss=train_loss, train_acc=train_acc,
+                           valid_loss=valid_loss, valid_acc=valid_acc, train_orig_acc=train_orig_acc,
+                           valid_orig_acc=valid_orig_acc)
         torch.save(saved_state, 'saved states/saved_state')
         print(f'*** Saved checkpoint ***')
         # print(f'Finding best threshold:')
@@ -338,12 +340,13 @@ def inference(model: nn.Module, images: torch.Tensor, saved_state=None, gt=None)
 def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
     dtype = get_dtype()
 
-    model = CloudNetPlus(3, 6 if 'depth' not in saved_state_file else int(saved_state_file[-1]), residual=True).type(dtype)
+    model = CloudNetPlus(3, 6 if 'depth' not in saved_state_file else int(saved_state_file[saved_state_file.find('depth_') + 6]),
+                         residual=True).type(dtype)
     saved_state = torch.load('saved states/' + saved_state_file, map_location='cpu')
 
-    dataset = HYTADataset(csv_file='../data/HYTA/metadata.csv',
-                          root_dir='../data/HYTA/',
-                          transform=transforms.Compose([Rescale((192, 192)), ToTensor()]))
+    dataset = SwinysegDataset(csv_file='../data/swinyseg/metadata_test.csv',
+                          root_dir='../data/swinyseg/',
+                          transform=transforms.Compose([Rescale(192), ToTensor()]))
     dl = DataLoader(dataset, batch_size=num_imgs, shuffle=False, num_workers=4)
 
     batch = next(iter(dl))
@@ -360,5 +363,22 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 if __name__ == "__main__":
     # get_models_evaluation(dataset='hyta')
-    show_inference(saved_state_file='saved_state_swinyseg_depth_5', num_imgs=32, gt=True, print_patches=False)
-    # train_network(True, 'ce', 0, 'swinyseg', epochs=20)
+    #show_inference(saved_state_file='saved_state_swinyseg_depth_3_new', num_imgs=8, gt=True, print_patches=False)
+    train_network(False, 'ce', 0, 'swinyseg', epochs=50)
+
+    '''plt.figure(figsize=(10, 8))
+    plt.title('Training loss')
+    for saved_state_file in ['saved_state_swinyseg_depth_3_new','saved_state_swinyseg_depth_4_new',
+                             'saved_state_swinyseg_depth_5_new','saved_state_swinyseg_depth_6_new']:
+
+        saved_state = torch.load('saved states/' + saved_state_file, map_location='cpu')
+        depth = saved_state_file.find('depth_')
+        valid_loss = saved_state['train_loss']
+
+        plt.plot(valid_loss, label=f'depth {saved_state_file[depth+6]}')
+    plt.legend()
+    plt.show()'''
+
+
+
+
