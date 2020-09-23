@@ -50,8 +50,9 @@ class CrossEntropyLoss(nn.Module):
 
 
 class WeaklyLoss(nn.Module):
-    def __init__(self, dense_crf_weight, ignore_index=255):
+    def __init__(self, dense_crf_weight, loss_fn, ignore_index=255):
         super().__init__()
+        self.loss_fn = loss_fn
         self.ignore_index = ignore_index
         self.ce_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
         self.jaccard_loss = FilteredJaccardLoss()
@@ -74,7 +75,13 @@ class WeaklyLoss(nn.Module):
 
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor):
         # the loss is celoss + regularization
-        loss = self.CrossEntropyLoss(y_pred, y_true)
+        if self.loss_fn == 'ce':
+            loss = self.CrossEntropyLoss(y_pred, y_true)
+        else:
+            # TODO add ignore index to jaccard loss
+            y_pred_1 = self.softmax(y_pred)
+            y_pred_1 = y_pred_1[:, 1, :, :]
+            loss = self.jaccard_loss(y_pred_1[y_true != self.ignore_index], y_true[y_true != self.ignore_index])
 
         denormalized_image = denormalizeimage(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         probs = self.softmax(y_pred)

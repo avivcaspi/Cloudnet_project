@@ -41,7 +41,8 @@ class Trainer:
 
         # Loss function
         if self.weakly:
-            self.loss_fn = WeaklyLoss(dense_crf_weight=kwargs['dense_loss_weight'], ignore_index=255)
+            self.loss_fn = WeaklyLoss(dense_crf_weight=kwargs['dense_loss_weight'],
+                                      loss_fn=kwargs['loss_fn'], ignore_index=255)
         else:
             if kwargs['loss_fn'] == 'ce':
                 self.loss_fn = CrossEntropyLoss()
@@ -56,6 +57,8 @@ class Trainer:
 
         # Extras
         self.softmax = nn.Softmax(dim=1)
+        self.saved_state_name = f'saved_state_{"weakly" if weakly_training else "full"}_{kwargs["loss_fn"]}' \
+                                f'_denseloss_weight_{kwargs["dense_loss_weight"]}'
 
     def train(self, epochs=1):
         start = time.time()
@@ -169,7 +172,7 @@ class Trainer:
         saved_state = dict(model_state=self.model.state_dict(), train_loss=train_loss, train_acc=train_acc,
                            valid_loss=valid_loss, valid_acc=valid_acc, train_orig_acc=train_orig_acc,
                            valid_orig_acc=valid_orig_acc)
-        torch.save(saved_state, 'saved states/saved_state')
+        torch.save(saved_state, 'saved states/' + self.saved_state_name)
         print(f'*** Saved checkpoint ***')
         # print(f'Finding best threshold:')
         # find_best_threshold(model, valid_dl)
@@ -363,19 +366,22 @@ def show_inference(saved_state_file, num_imgs=6, gt=False, print_patches=False):
 
 if __name__ == "__main__":
     # get_models_evaluation(dataset='hyta')
-    #show_inference(saved_state_file='saved_state_swinyseg_depth_3_new', num_imgs=8, gt=True, print_patches=False)
-    train_network(False, 'ce', 0, 'swinyseg', epochs=50)
+    #show_inference(saved_state_file='saved_state_swinyseg_full_training_celoss_new', num_imgs=8, gt=True, print_patches=False)
+    train_network(True, 'jaccard', 3e-10, 'swinyseg', epochs=50)
+    train_network(True, 'jaccard', 1e-9, 'swinyseg', epochs=50)
+
+
 
     '''plt.figure(figsize=(10, 8))
-    plt.title('Training loss')
-    for saved_state_file in ['saved_state_swinyseg_depth_3_new','saved_state_swinyseg_depth_4_new',
-                             'saved_state_swinyseg_depth_5_new','saved_state_swinyseg_depth_6_new']:
+    plt.title('Training accuracy')
+    for saved_state_file, name in zip(['saved_state_swinyseg_depth_6_new', 'saved_state_swinyseg_full_training_celoss_new'],
+    ['FilteredJaccardLoss', 'CrossEntropyLoss']):
 
         saved_state = torch.load('saved states/' + saved_state_file, map_location='cpu')
-        depth = saved_state_file.find('depth_')
-        valid_loss = saved_state['train_loss']
 
-        plt.plot(valid_loss, label=f'depth {saved_state_file[depth+6]}')
+        valid_loss = saved_state['train_acc']
+
+        plt.plot(valid_loss, label=name)
     plt.legend()
     plt.show()'''
 
