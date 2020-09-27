@@ -305,19 +305,25 @@ def get_models_evaluation(model=None, dataset='swinyseg'):
     dataset = get_dataset(dataset)
     dl = DataLoader(dataset, batch_size=1, shuffle=False)
     if model is None:
-        model_saved_states = ['saved_state_swinyseg', 'saved_state_swinyseg_new', 'saved_state_swinyseg_depth_3',
-                              'saved_state_swinyseg_depth_4', 'saved_state_swinyseg_depth_5',
-                              'saved_state_swinyseg_full_training_celoss', 'saved_state_weakly_celoss',
-                              'saved_state_weakly_denseloss_1e-9',
-                              'saved_state_weakly_denseloss_3e-10', 'saved_state_weakly_denseloss_5e-10',
-                              'saved_state_weakly_denseloss_1e-10', 'saved_state_weakly_denseloss_4e-10']
+        model_saved_states = ['saved_state_swinyseg_depth_3_new',
+                              'saved_state_swinyseg_depth_4_new',
+                              'saved_state_swinyseg_depth_5_new',
+                              'saved_state_swinyseg_new',
+                              'saved_state_swinyseg_full_training_celoss_new',
+                              'saved_state_weakly_celoss_new',
+                              'saved_state_weakly_denseloss_1e-10_new',
+                              'saved_state_weakly_denseloss_3e-10_new',
+                              'saved_state_weakly_denseloss_4e-10_new',
+                              'saved_state_weakly_denseloss_5e-10_new',
+                              'saved_state_weakly_denseloss_1e-9_new']
         for model_saved_state in model_saved_states:
-            model = CloudNetPlus(3, 6 if 'depth' not in model_saved_state else int(model_saved_state[-1]), residual=True)
+            model = CloudNetPlus(3, 6 if 'depth' not in model_saved_state else int(model_saved_state.replace('_new', '')[-1]), residual=True)
             saved_state = torch.load('saved states/' + model_saved_state, map_location='cpu')
             model.load_state_dict(saved_state['model_state'])
             model.type(torch.cuda.FloatTensor)
             print(model_saved_state)
             evaluate_performance(model, dl)
+            print('')
     else:
         evaluate_performance(model, dl)
 
