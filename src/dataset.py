@@ -418,10 +418,26 @@ def gt_to_onehot(gt_image):
     return onehot
 
 
-if __name__ == '__main__':
-    dataset = HYTADataset('../data/HYTA/metadata.csv', '../data/HYTA/',
-                              transform=transforms.Compose([Rescale((256, 256)), ToTensor()]))
-    dl = DataLoader(dataset, batch_size=16, shuffle=True)
-    batch = next(iter(dl))
+def calculate_average_labeled_amount(dataset, ignore_index=255, device='cuda'):
+    dl = DataLoader(dataset, batch_size=1)
+    
+    sum_percentages = 0.0
+    for i, sample in enumerate(dl):
+        img = sample['gt'].to(device)
 
-    show_image_gt_batch(batch['image'], batch['gt'])
+        img[img != ignore_index] = 1
+        img[img == ignore_index] = 0
+        labeled_pixels = img.sum().item()
+        total_pixels = torch.numel(img)
+
+        sum_percentages += labeled_pixels / total_pixels
+
+    return sum_percentages / len(dataset)
+
+
+if __name__ == '__main__':
+    dataset = SwinysegDataset('../data/swinyseg/metadata_train.csv', '../data/swinyseg/',
+                            transform=transforms.Compose([Rescale(192), ToTensor()]), weakly=True, train=False)
+    print(len(dataset))
+    percentage = calculate_average_labeled_amount(dataset, device='cpu')
+    print(percentage)
