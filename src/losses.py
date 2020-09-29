@@ -6,11 +6,12 @@ from DenseCRFLoss import DenseCRFLoss, denormalizeimage
 
 class FilteredJaccardLoss(nn.Module):
 
-    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, epsilon=1e-8):
+    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, ignore_index=255, epsilon=1e-8):
         """
         Calculate filtered Jaccard loss
         :param y_pred: tensor shaped (batch_size x H x W) with probability for each pixel
         :param y_true: tensor shaped (batch_size x H x W) of true class for each pixel
+        :param ignore_index: index of unlabeled pixels
         :param epsilon: const for stability
         :return:
         """
@@ -19,6 +20,10 @@ class FilteredJaccardLoss(nn.Module):
             softmax = nn.Softmax(dim=1)
             y_pred = softmax(y_pred)
             y_pred = y_pred[:, 1, :, :]
+
+        y_pred = y_pred[y_true != ignore_index]
+        y_true = y_true[y_true != self.ignore_index]
+
         if y_true.sum() == 0:
             i = ((1 - y_true) * (1 - y_pred)).sum().float()
             u = ((1 - y_true) + (1 - y_pred)).sum().float()
@@ -74,14 +79,11 @@ class WeaklyLoss(nn.Module):
         return loss
 
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor):
-        # the loss is celoss + regularization
+        # the loss is ce loss/ jaccard loss + regularization
         if self.loss_fn == 'ce':
             loss = self.CrossEntropyLoss(y_pred, y_true)
         else:
-            # TODO add ignore index to jaccard loss
-            y_pred_1 = self.softmax(y_pred)
-            y_pred_1 = y_pred_1[:, 1, :, :]
-            loss = self.jaccard_loss(y_pred_1[y_true != self.ignore_index], y_true[y_true != self.ignore_index])
+            loss = self.jaccard_loss(y_pred, y_true)
 
         denormalized_image = denormalizeimage(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         probs = self.softmax(y_pred)
